@@ -1,0 +1,14 @@
+{
+    "test": "", "CENSUS": 123,
+
+	"number": -123.456e+2,
+    "array": [ 1, 2, 3, 4, 5 ],
+    "true": true,
+    "false": false,
+    "string": "string",
+    "null": null,
+	"object":
+	{
+		"key": "string"
+	}
+}
