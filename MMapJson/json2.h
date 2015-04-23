@@ -75,12 +75,34 @@ struct buf_t
 };
 
 //------------------------------------------------------------------------------
+struct jmapbucket_t
+{
+    size_t len;
+    size_t cap;
+    size_t* slots;
+};
+
+//------------------------------------------------------------------------------
+struct jmap_t
+{
+    size_t cap;
+    size_t len;
+    jmapbucket_t* buckets;
+};
+
+void jmap_init(jmap_t* map);
+
+//------------------------------------------------------------------------------
 struct json_t
 {
     std::vector<jnum_t> nums;
     std::vector<jstr_t> strs;
     std::vector<_jobj_t> objs;
     std::vector<_jarray_t> arrays;
+
+    struct jmap_t map;
+
+    size_t bytes;
 
     buf_t buf;
 };

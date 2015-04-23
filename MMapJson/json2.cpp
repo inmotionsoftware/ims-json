@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/resource.h>
+#include <errno.h>
 
 #ifndef MAX
     #define MAX(A,B) (A)>(B)?(A):(B)
@@ -27,13 +29,24 @@
     #define json_assert(A, STR, ...) { if (!(A)) {printf(STR "\n", ## __VA_ARGS__ ); abort();} }
 #endif
 
+#define PRINT 1
+#if PRINT
+    #define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
+#else
+    #define json_fprintf(F, FMT, ...)
+#endif
+
+static const jnum_t GROWTH_FACTOR = 1.1;
+#define BUF_SIZE ((size_t)5)
+
+
 //------------------------------------------------------------------------------
 struct jstr_t
 {
     size_t len;
     uint32_t hash;
     char* chars;
-    char buf[10];
+    char buf[BUF_SIZE];
 };
 
 //------------------------------------------------------------------------------
@@ -57,7 +70,7 @@ struct _jobj_t
     size_t cap;
     size_t len;
     jkv_t* kvs;
-    jkv_t buf[10];
+    jkv_t buf[BUF_SIZE];
 };
 
 //------------------------------------------------------------------------------
@@ -67,7 +80,7 @@ struct _jarray_t
     size_t cap;
     size_t len;
     jval_t* vals;
-    jval_t buf[10];
+    jval_t buf[BUF_SIZE];
 };
 
 //------------------------------------------------------------------------------
@@ -123,6 +136,96 @@ uint32_t murmur3_32(const char *key, size_t len, uint32_t seed)
 	return hash;
 }
 
+uint32_t strhash( const char* key, size_t len )
+{
+    static const uint32_t MURMER32_SEED = 0;
+    static const size_t MAX_CHARS = 30;
+    return murmur3_32(key, MIN(MAX_CHARS, len), MURMER32_SEED);
+}
+
+size_t json_new_str(json_t* jsn, const char* cstr, size_t len, uint32_t hash)
+{
+    // not found, create a new one
+    size_t rt = jsn->strs.size();
+    jsn->strs.emplace_back();
+    jstr_t* jstr = &jsn->strs.back();
+
+    jstr->hash = hash;
+    jstr->len = len;
+
+    char* buf = NULL;
+    if (len > BUF_SIZE)
+    {
+        buf = jstr->chars = (char*)malloc( len * sizeof(char));
+    }
+    else
+    {
+        buf = jstr->buf;
+    }
+
+    jsn->bytes += len;
+    memcpy(buf, cstr, len * sizeof(char));
+    return rt;
+}
+
+//void jmap_rebuild( jmap_t* map )
+//{
+//    static const double load_factor = 0.2;
+//
+//    size_t cap = ceil( (double)map->len * (1.0-load_factor));
+//    map->buckets = (jmapbucket_t*)realloc(map->buckets, sizeof(jmapbucket_t) * cap);
+//
+//}
+
+size_t json_find_str(json_t* jsn, const char* cstr)
+{
+    size_t slen = strlen(cstr);
+    uint32_t hash = strhash(cstr, slen);
+
+    jmap_t* map = &jsn->map;
+    if (!map->buckets)
+    {
+        map->cap = 1024*1024;
+        map->buckets = (jmapbucket_t*)calloc( sizeof(jmapbucket_t), map->cap );
+    }
+
+    size_t idx = hash % map->cap;
+    jmapbucket_t* bucket = &map->buckets[idx];
+
+    size_t rt = SIZE_T_MAX;
+
+    for ( size_t i = 0; i < bucket->len; ++i )
+    {
+        size_t idx = bucket->slots[i];
+        jstr_t* str = &jsn->strs[idx];
+        if (str->hash == hash && str->len == slen)
+        {
+            if (strncmp(str->chars?str->chars:str->buf, cstr, slen) == 0)
+            {
+                rt = idx;
+                break;
+            }
+        }
+    }
+
+    if (rt == SIZE_T_MAX)
+    {
+        if (bucket->len+1 >= bucket->cap)
+        {
+            bucket->cap = MAX(bucket->len+5, bucket->cap*GROWTH_FACTOR+2);
+            bucket->slots = (size_t*)calloc(sizeof(size_t), bucket->cap);
+        }
+
+        // not found, create a new one
+        rt = json_new_str(jsn, cstr, slen, hash);
+
+        map->len++;
+        bucket->slots[bucket->len++] = rt;
+    }
+
+    return rt;
+}
+
 //------------------------------------------------------------------------------
 //int jstr_cmp(jstr_t* str, const char* cstr)
 //{
@@ -166,7 +269,7 @@ static size_t json_add_obj( json_t* j )
     j->objs.push_back( (_jobj_t)
     {
         .json = j,
-        .cap = 10,
+        .cap = BUF_SIZE,
         .len = 0,
         .kvs = NULL
     });
@@ -180,7 +283,7 @@ static size_t json_add_array( json_t* j )
     j->arrays.push_back((_jarray_t)
     {
         .json = j,
-        .cap = 10,
+        .cap = BUF_SIZE,
         .len = 0,
         .vals = NULL
     });
@@ -197,30 +300,8 @@ static size_t json_add_num( json_t* j, jnum_t n )
 
 static size_t json_add_str( json_t* j, const char* str )
 {
-    assert(j && str);
-    static const uint32_t MURMER32_SEED = 0;
-
-    size_t idx = j->strs.size();
-    j->strs.emplace_back();
-    jstr_t* jstr = &j->strs.back();
-
-    assert(str);
-    size_t len = strlen(str);
-    uint32_t hash = murmur3_32(str, MIN(30, len), MURMER32_SEED);
-    jstr->hash = hash;
-    jstr->len = len;
-
-    char* buf = NULL;
-    if (len > 10)
-    {
-        buf = jstr->chars = (char*)malloc( len );
-    }
-    else
-    {
-        buf = jstr->buf;
-    }
-
-    memcpy(buf, str, len * sizeof(char));
+    size_t idx = json_find_str(j, str);
+    assert (idx != SIZE_T_MAX);
     return idx;
 }
 
@@ -248,8 +329,8 @@ void jobj_reserve( _jobj_t* obj, size_t cap )
     if ( obj->len+cap < obj->cap)
         return;
 
-    assert( (obj->len < 10 && !obj->kvs) || (obj->kvs && obj->len >= 10) );
-    cap = MAX(obj->len+cap, obj->cap*1.2+1);
+    assert( (obj->len < BUF_SIZE && !obj->kvs) || (obj->kvs && obj->len >= BUF_SIZE) );
+    cap = MAX(obj->len+cap, obj->cap*GROWTH_FACTOR+1);
 
     jkv_t* kvs = (jkv_t*)realloc( obj->kvs, cap * sizeof(jkv_t) );
     assert (kvs);
@@ -267,7 +348,7 @@ jkv_t* jobj_get_kv(_jobj_t* obj, size_t idx)
 {
     assert(idx < obj->len);
     assert (idx < obj->len);
-    assert( (obj->len < 10 && !obj->kvs) || (obj->kvs && obj->len >= 10) );
+    assert( (obj->len < BUF_SIZE && !obj->kvs) || (obj->kvs && obj->len >= BUF_SIZE) );
     return (obj->kvs) ? &obj->kvs[idx] : &obj->buf[idx];
 }
 
@@ -377,8 +458,8 @@ void jarray_reserve( _jarray_t* a, size_t cap )
     if ( a->len+cap < a->cap )
         return;
 
-    assert( (a->len < 10 && !a->vals) || (a->vals && a->len >= 10) );
-    cap = MAX(a->len+cap, a->cap*1.2+1);
+    assert( (a->len < BUF_SIZE && !a->vals) || (a->vals && a->len >= BUF_SIZE) );
+    cap = MAX(a->len+cap, a->cap*GROWTH_FACTOR+1);
 
     jval_t* vals = (jval_t*)realloc( a->vals, cap * sizeof(jkv_t) );
     assert(vals);
@@ -396,7 +477,7 @@ jval_t* jarray_get_val( _jarray_t* a, size_t idx)
 {
     assert(a);
     assert(idx < a->len);
-    assert( (a->len < 10 && !a->vals) || (a->len >= 10 && a->vals) );
+    assert( (a->len < BUF_SIZE && !a->vals) || (a->len >= BUF_SIZE && a->vals) );
     return (a->vals) ? &a->vals[idx] : &a->buf[idx];
 }
 
@@ -476,13 +557,6 @@ jobj_t jarray_add_obj( jarray_t _a )
 
     return (jobj_t){ a->json, idx };
 }
-
-#define PRINT 0
-#if PRINT
-    #define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
-#else
-    #define json_fprintf(F, FMT, ...)
-#endif
 
 //------------------------------------------------------------------------------
 static inline void jobj_print(jobj_t root, size_t depth, FILE* f);
@@ -627,18 +701,31 @@ static inline void jobj_print(jobj_t _root, size_t depth, FILE* f)
 
     json_fprintf(f, "\n");
     print_tabs(depth, f);
-    json_fprintf(f, "{");
+    json_fprintf(f, "}");
+}
+
+//------------------------------------------------------------------------------
+void jmap_init(jmap_t* map)
+{
+    map->cap = 0;
+    map->len = 0;
+    map->buckets = NULL;
 }
 
 //------------------------------------------------------------------------------
 void json_print(json_t* j, FILE* f)
 {
     jobj_print(json_root(j), 0, f);
+    json_fprintf(f, "\n");
 }
 
 json_t* json_new()
 {
     json_t* j = new json_t();
+
+    jmap_init(&j->map);
+
+    j->bytes = 0;
     j->buf.len = 0;
     j->buf.cap = 0;
     j->buf.buf = NULL;
@@ -659,9 +746,9 @@ jobj_t json_root(json_t* j)
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void eat_whitespace( T& beg, T end )
+inline void eat_whitespace( T& beg, const T& end )
 {
-    for (; beg != end; beg++ )
+    for (; beg != end; ++beg )
     {
         switch(*beg)
         {
@@ -681,17 +768,17 @@ inline void eat_whitespace( T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline jnum_t parse_sign( T& beg, T end )
+inline jnum_t parse_sign( T& beg, const T& end )
 {
     json_assert(beg != end, "unexpected end of file");
     switch (*beg)
     {
         case '-':
-            beg++;
+            ++beg;
             return -1;
 
         case '+':
-            beg++;
+            ++beg;
             return 1;
 
         default:
@@ -702,13 +789,12 @@ inline jnum_t parse_sign( T& beg, T end )
 //------------------------------------------------------------------------------
 static jnum_t __ignore = 0;
 template < typename T >
-inline jnum_t parse_digits( T& beg, T end, jnum_t& places = __ignore)
+inline jnum_t parse_digits( T& beg, const T& end, jnum_t& places = __ignore)
 {
     json_assert(beg != end, "unexpected end of file");
 
     jnum_t num = 0;
-    T start = beg;
-    for (; beg != end; beg++)
+    for (size_t cnt = 0; beg != end; ++beg, ++cnt)
     {
         switch (*beg)
         {
@@ -729,7 +815,7 @@ inline jnum_t parse_digits( T& beg, T end, jnum_t& places = __ignore)
 
             default:
             {
-                places = pow(10, std::distance(beg, start));
+                places = pow(10, cnt);
                 return num;
             }
         }
@@ -742,7 +828,7 @@ inline jnum_t parse_digits( T& beg, T end, jnum_t& places = __ignore)
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline jnum_t parse_number( T& beg, T end )
+inline jnum_t parse_number( T& beg, const T& end )
 {
     json_assert(beg != end, "unexpected end of file");
 
@@ -789,7 +875,7 @@ inline jnum_t parse_number( T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline unsigned char char_to_hex(T& beg, T end)
+inline unsigned char char_to_hex(T& beg, const T& end)
 {
     json_assert( beg != end, "unexpected end of stream while parsing unicode escape");
     switch (*beg)
@@ -834,7 +920,7 @@ static inline void buf_reserve( buf_t* buf, size_t cap )
     if (buf->len+cap < buf->cap)
         return;
 
-    cap = MAX(buf->len+cap+1, buf->cap*1.2+2);
+    cap = MAX(buf->len+cap+1, buf->cap*GROWTH_FACTOR+2);
     buf->cap = MAX(25, cap);
     buf->buf = (char*)realloc(buf->buf, buf->cap * sizeof(char));
     assert (buf->buf);
@@ -880,7 +966,7 @@ static inline void utf8_encode(int32_t codepoint, buf_t* str )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline unsigned int read_unicode_hex(T& beg, T end)
+inline unsigned int read_unicode_hex(T& beg, const T& end)
 {
     return  char_to_hex(beg, end) << 12 |
             char_to_hex(beg, end) << 8 |
@@ -890,7 +976,7 @@ inline unsigned int read_unicode_hex(T& beg, T end)
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void parse_unicode( buf_t* str, T& beg, T end )
+inline void parse_unicode( buf_t* str, T& beg, const T& end )
 {
     // U+XXXX
     unsigned int val = read_unicode_hex(beg, end);
@@ -899,9 +985,9 @@ inline void parse_unicode( buf_t* str, T& beg, T end )
     // surrogate pair, \uXXXX\uXXXXX
     if (0xD800 <= val && val <= 0xDBFF)
     {
-        json_assert(*beg++ == '\\', "invalid unicode");
+        json_assert(*beg == '\\', "invalid unicode"); ++beg;
         json_assert(beg != end, "unexpected end of stream");
-        json_assert(*beg++ == 'u', "invalid unicode");
+        json_assert(*beg == 'u', "invalid unicode"); ++beg;
 
         // read the surrogate pair from the stream
         unsigned int val2 = read_unicode_hex(beg, end);
@@ -920,15 +1006,16 @@ inline void parse_unicode( buf_t* str, T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void parse_string( T& beg, T end, buf_t* str )
+inline void parse_string( T& beg, const T& end, buf_t* str )
 {
     json_assert(beg != end, "unexpected end of file");
-    json_assert(*beg == '"', "not a valid string");
+    json_assert(*beg == '"', "not a valid string: '%c'", *beg);
 
     buf_clear(str);
 
     char ch;
-    for (char prev = *beg++; beg != end; beg++ )
+    char prev = *beg;
+    for (++beg; beg != end; ++beg )
     {
         ch = *beg;
         switch (prev)
@@ -1002,7 +1089,7 @@ inline void parse_string( T& beg, T end, buf_t* str )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline bool parse_true( T& beg, T end )
+inline bool parse_true( T& beg, const T& end )
 {
     json_assert(*++beg == 'r' && beg != end &&
                 *++beg == 'u' && beg != end &&
@@ -1014,7 +1101,7 @@ inline bool parse_true( T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline bool parse_false( T& beg, T end )
+inline bool parse_false( T& beg, const T& end )
 {
     json_assert(*++beg == 'a' && beg != end &&
                 *++beg == 'l' && beg != end &&
@@ -1027,7 +1114,7 @@ inline bool parse_false( T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline std::nullptr_t parse_null( T& beg, T end )
+inline std::nullptr_t parse_null( T& beg, const T& end )
 {
     json_assert(*++beg == 'u' && beg != end &&
                 *++beg == 'l' && beg != end &&
@@ -1039,10 +1126,10 @@ inline std::nullptr_t parse_null( T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void parse_array( jarray_t a, T& beg, T end )
+inline void parse_array( jarray_t a, T& beg, const T& end )
 {
     json_assert(beg != end, "unexpected end of file");
-    while (beg++ != end)
+    while (++beg != end)
     {
         eat_whitespace(beg, end);
         switch ( *beg )
@@ -1104,7 +1191,7 @@ inline void parse_array( jarray_t a, T& beg, T end )
         switch (*beg)
         {
             case ']':
-                beg++;
+                ++beg;
                 return;
 
             case ',':
@@ -1120,12 +1207,12 @@ inline void parse_array( jarray_t a, T& beg, T end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void parse_obj( jobj_t obj, T& beg, T end )
+inline void parse_obj( jobj_t obj, T& beg, const T& end )
 {
     json_t* jsn = obj.json;
 
     json_assert(beg != end, "unexpected end of file");
-    while (beg++ != end)
+    while (++beg != end)
     {
         eat_whitespace(beg, end);
 
@@ -1213,8 +1300,215 @@ inline void parse_obj( jobj_t obj, T& beg, T end )
     json_assert(false, "unexpected end of file");
 }
 
+static inline jnum_t btomb(size_t bytes)
+{
+    return (bytes / (jnum_t)(1024*1024));
+}
+
+
+class memfile
+{
+public:
+    memfile()
+        : m_cur(NULL)
+        , m_beg(NULL)
+        , m_end(NULL)
+        , m_off(0)
+        , m_len(0)
+        , m_fd(0)
+    {}
+
+    memfile( const char* path )
+        : m_cur(NULL)
+        , m_beg(NULL)
+        , m_end(NULL)
+        , m_off(0)
+        , m_len(0)
+        , m_fd(0)
+    {
+        m_fd = open(path, O_RDONLY);
+        assert(m_fd);
+
+        struct stat st;
+        int rt = fstat(m_fd, &st);
+        assert (rt == 0);
+        m_len = st.st_size;
+
+        size_t psize = getpagesize();
+
+        size_t len = std::min(m_len, psize);
+        m_beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, m_fd, m_off);
+        m_cur = m_beg;
+        m_end = m_beg + len;
+
+        posix_madvise(m_beg, len, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
+    }
+
+    memfile ( memfile&& mv )
+        : m_cur(mv.m_cur)
+        , m_beg(mv.m_beg)
+        , m_end(mv.m_end)
+        , m_off(mv.m_off)
+        , m_len(mv.m_len)
+        , m_fd(mv.m_fd)
+    {
+        mv.m_cur = mv.m_beg = mv.m_end = NULL;
+        mv.m_off = 0;
+        mv.m_len = 0;
+        mv.m_fd = 0;
+    }
+
+    memfile& operator= ( memfile&& mv )
+    {
+        m_cur = mv.m_cur;
+        m_beg = mv.m_beg;
+        m_end = mv.m_end;
+        m_off = mv.m_off;
+        m_len = mv.m_len;
+        m_fd = mv.m_fd;
+        mv.m_cur = mv.m_beg = mv.m_end = NULL;
+        mv.m_off = 0;
+        mv.m_len = 0;
+        mv.m_fd = 0;
+        return *this;
+    }
+
+    memfile( const memfile& ) = delete;
+    memfile& operator= ( const memfile& ) = delete;
+
+    ~memfile()
+    {
+        if (m_fd) close(m_fd);
+        if (m_beg) munmap(m_beg, m_end-m_beg);
+    }
+
+    bool operator== ( const memfile& rhs ) const
+    {
+        return (m_fd == rhs.m_fd && m_off == rhs.m_off && m_len == rhs.m_len && (m_cur-m_beg) == (rhs.m_cur-m_beg));
+    }
+
+    bool operator!= ( const memfile& rhs ) const { return !this->operator==(rhs); }
+
+//    memfile operator ++(int) // postfix ++
+//    {
+//        memfile copy = *this;
+//        ++*this;
+//        return copy;
+//    }
+
+    memfile& operator ++() // ++ prefix
+    {
+        if (++m_cur == m_end)
+        {
+            // done with this page
+            size_t len = m_end - m_beg;
+            munmap(m_beg, len);
+            m_off += len;
+
+            if (m_off >= m_len)
+            {
+                m_cur = m_beg = m_end = NULL;
+                m_len = 0;
+                m_off = 0;
+                m_fd = 0;
+            }
+            else
+            {
+                len = std::min(len, m_len-m_off);
+                assert (len > 0);
+
+                m_beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, m_fd, m_off);
+                m_cur = m_beg;
+                m_end = m_beg + len;
+
+                posix_madvise(m_beg, len, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
+            }
+        }
+        return *this;
+    }
+
+    const char& operator*() const
+    {
+        return *m_cur;
+    }
+
+protected:
+    int m_fd;
+    size_t m_off;
+    size_t m_len;
+    char* m_cur;
+    char* m_beg;
+    char* m_end;
+};
+
+#include <mach/vm_statistics.h>
+#include <mach/mach_types.h>
+#include <mach/mach_init.h>
+#include <mach/mach_host.h>
+#include<mach/mach.h>
+
+void print_mem_usage()
+{
+//    struct task_basic_info t_info;
+//    mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
+//    task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count);
+//
+//    printf("RAM: %0.1f MB - %0.1f\n", btomb(t_info.resident_size), btomb(t_info.virtual_size));
+
+// resident size is in t_info.resident_size;
+// virtual size is in t_info.virtual_size;
+
+//    vm_size_t page_size;
+//    mach_port_t mach_port;
+//    mach_msg_type_number_t count;
+//    vm_statistics64_data_t vm_stats;
+//
+//    mach_port = mach_host_self();
+//    count = sizeof(vm_stats) / sizeof(natural_t);
+//    if (KERN_SUCCESS == host_page_size(mach_port, &page_size) &&
+//        KERN_SUCCESS == host_statistics64(mach_port, HOST_VM_INFO,
+//                                        (host_info64_t)&vm_stats, &count))
+//    {
+//        long long free_memory = (int64_t)vm_stats.free_count * (int64_t)page_size;
+//
+//        long long used_memory = ((int64_t)vm_stats.active_count +
+//                                 (int64_t)vm_stats.inactive_count +
+//                                 (int64_t)vm_stats.wire_count) *  (int64_t)page_size;
+//
+//        printf("[%0.1fMB]/[%0.1fMB]\n", btomb(used_memory), btomb(free_memory));
+//    }
+
+//    errno = 0;
+//    struct rusage memory = {0};
+//    getrusage(RUSAGE_SELF, &memory);
+//    if(errno == EFAULT)
+//        printf("Error: EFAULT\n");
+//    else if(errno == EINVAL)
+//        printf("Error: EINVAL\n");
+//
+//    printf("RAM: %0.1f MB\n", btomb(memory.ru_maxrss));
+//
+//    printf("Usage: %ld\n", memory.ru_ixrss);
+//    printf("Usage: %ld\n", memory.ru_isrss);
+//    printf("Usage: %ld\n", memory.ru_idrss);
+//    printf("Max: %ld\n", memory.ru_maxrss);
+}
+
+
 json_t* json_load_file( const char* path )
 {
+
+#define PAGED_READ 0
+#if PAGED_READ
+    memfile beg = path;
+    memfile end;
+
+    print_mem_usage();
+    json_t* jsn = json_new();
+    parse_obj(json_root(jsn), beg, end);
+    print_mem_usage();
+
+#else
     int fd = open(path, O_RDONLY);
     if (!fd)
         return NULL;
@@ -1226,14 +1520,102 @@ json_t* json_load_file( const char* path )
         return NULL;
     }
 
-    void* ptr = (char*)mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE|MAP_NORESERVE, fd, 0);
+    printf("Json Size: %0.1f MB\n", btomb(st.st_size) );
+
+    print_mem_usage();
+    void* ptr = (char*)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED|MAP_NORESERVE, fd, 0);
+    posix_madvise(ptr, st.st_size, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
+
+    print_mem_usage();
 
     json_t* jsn = json_new();
 
     const char* cptr = (const char*)ptr;
     parse_obj(json_root(jsn), cptr, cptr+st.st_size);
 
+    print_mem_usage();
+
     munmap(ptr, st.st_size);
 
+    print_mem_usage();
+
+#endif
+//
+//    printf("Len: %zu Cap: %zu Load factor: %f\n", jsn->map.len, jsn->map.cap, jsn->map.len / (double)jsn->map.cap);
+//    printf("String memory: %0.1f MB\n", btomb(jsn->bytes));
+//
+//    size_t total = 0;
+//    size_t total_reserve = 0;
+//
+//    {
+//        size_t mem = 0;
+//        size_t reserve = 0;
+//        for ( size_t i = 0; i < jsn->arrays.size(); ++i )
+//        {
+//            _jarray_t* array = &jsn->arrays[i];
+//            if (array->cap > BUF_SIZE)
+//            {
+//                mem += array->len * sizeof(jval_t);
+//                reserve += array->cap * sizeof(jval_t);
+//            }
+//        }
+//        mem += jsn->arrays.size() * sizeof(_jarray_t);
+//        reserve += jsn->arrays.capacity() * sizeof(_jarray_t);
+//        printf("[ARRAY] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+//
+//        total += mem;
+//        total_reserve += reserve;
+//    }
+//
+//    {
+//        size_t mem = 0;
+//        size_t reserve = 0;
+//        for ( size_t i = 0; i < jsn->objs.size(); ++i )
+//        {
+//            _jobj_t* obj = &jsn->objs[i];
+//            if (obj->cap > BUF_SIZE)
+//            {
+//                mem += obj->len * sizeof(jkv_t);
+//                reserve += obj->cap * sizeof(jkv_t);
+//            }
+//        }
+//        mem += jsn->objs.size() * sizeof(_jobj_t);
+//        reserve += jsn->objs.capacity() * sizeof(_jobj_t);
+//        printf("[OBJECT] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+//
+//        total += mem;
+//        total_reserve += reserve;
+//    }
+//
+//    {
+//        size_t mem = 0;
+//        size_t reserve = 0;
+//        for ( size_t i = 0; i < jsn->strs.size(); ++i )
+//        {
+//            jstr_t* str = &jsn->strs[i];
+//            mem += str->len;
+//            reserve += str->len;
+//        }
+//        mem += jsn->strs.size() * sizeof(jstr_t);
+//        reserve += jsn->strs.capacity() * sizeof(jstr_t);
+//        printf("[STRING] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+//
+//        total += mem;
+//        total_reserve += reserve;
+//    }
+//
+//    {
+//        size_t mem = 0;
+//        size_t reserve = 0;
+//        mem += jsn->nums.size() * sizeof(jnum_t);
+//        reserve += jsn->nums.capacity() * sizeof(jnum_t);
+//
+//        printf("[NUMBERS] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+//
+//        total += mem;
+//        total_reserve += reserve;
+//    }
+//
+//    printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
     return jsn;
 }
