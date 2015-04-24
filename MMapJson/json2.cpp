@@ -36,17 +36,34 @@
     #define json_fprintf(F, FMT, ...)
 #endif
 
-static const jnum_t GROWTH_FACTOR = 1.1;
-#define BUF_SIZE ((size_t)5)
+#define BUF_SIZE ((size_t)4)
+#define MAX_VAL_IDX 268435456 // 2^28
+#define MAX_KEY_IDX UINT32_MAX
 
+//------------------------------------------------------------------------------
+static inline size_t grow( size_t min, size_t cur )
+{
+    static const jnum_t GROWTH_FACTOR = 1.05;
+    assert(min >= cur);
+
+    size_t size;
+    size = MAX(min, BUF_SIZE*2);
+    size = MAX(size, cur*GROWTH_FACTOR+2);
+
+    assert(size > cur);
+    return size;
+}
 
 //------------------------------------------------------------------------------
 struct jstr_t
 {
     size_t len;
     uint32_t hash;
-    char* chars;
-    char buf[BUF_SIZE];
+    union
+    {
+        char* chars;
+        char buf[BUF_SIZE];
+    };
 };
 
 //------------------------------------------------------------------------------
@@ -67,20 +84,26 @@ struct jkv_t
 struct _jobj_t
 {
     struct json_t* json;
-    size_t cap;
-    size_t len;
-    jkv_t* kvs;
-    jkv_t buf[BUF_SIZE];
+    jsize_t cap;
+    jsize_t len;
+    union
+    {
+        jkv_t* kvs;
+        jkv_t buf[BUF_SIZE];
+    };
 };
 
 //------------------------------------------------------------------------------
 struct _jarray_t
 {
     struct json_t* json;
-    size_t cap;
-    size_t len;
-    jval_t* vals;
-    jval_t buf[BUF_SIZE];
+    jsize_t cap;
+    jsize_t len;
+    union
+    {
+        jval_t* vals;
+        jval_t buf[BUF_SIZE];
+    };
 };
 
 //------------------------------------------------------------------------------
@@ -112,18 +135,19 @@ uint32_t murmur3_32(const char *key, size_t len, uint32_t seed)
 	const uint8_t *tail = (const uint8_t *) (key + nblocks * 4);
 	uint32_t k1 = 0;
  
-	switch (len & 3) {
-	case 3:
-		k1 ^= tail[2] << 16;
-	case 2:
-		k1 ^= tail[1] << 8;
-	case 1:
-		k1 ^= tail[0];
- 
-		k1 *= c1;
-		k1 = (k1 << r1) | (k1 >> (32 - r1));
-		k1 *= c2;
-		hash ^= k1;
+	switch (len & 3)
+    {
+        case 3:
+            k1 ^= tail[2] << 16;
+        case 2:
+            k1 ^= tail[1] << 8;
+        case 1:
+            k1 ^= tail[0];
+            k1 *= c1;
+            k1 = (k1 << r1) | (k1 >> (32 - r1));
+            k1 *= c2;
+            hash ^= k1;
+            break;
 	}
  
 	hash ^= len;
@@ -156,7 +180,7 @@ size_t json_new_str(json_t* jsn, const char* cstr, size_t len, uint32_t hash)
     char* buf = NULL;
     if (len > BUF_SIZE)
     {
-        buf = jstr->chars = (char*)malloc( len * sizeof(char));
+        buf = jstr->chars = (char*)malloc( len * sizeof(char) );
     }
     else
     {
@@ -200,7 +224,8 @@ size_t json_find_str(json_t* jsn, const char* cstr)
         jstr_t* str = &jsn->strs[idx];
         if (str->hash == hash && str->len == slen)
         {
-            if (strncmp(str->chars?str->chars:str->buf, cstr, slen) == 0)
+            const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
+            if (strncmp(chars, cstr, slen) == 0)
             {
                 rt = idx;
                 break;
@@ -210,9 +235,10 @@ size_t json_find_str(json_t* jsn, const char* cstr)
 
     if (rt == SIZE_T_MAX)
     {
-        if (bucket->len+1 >= bucket->cap)
+        size_t req = bucket->len+1;
+        if (req >= bucket->cap)
         {
-            bucket->cap = MAX(bucket->len+5, bucket->cap*GROWTH_FACTOR+2);
+            bucket->cap = grow(req, bucket->cap);
             bucket->slots = (size_t*)calloc(sizeof(size_t), bucket->cap);
         }
 
@@ -227,41 +253,6 @@ size_t json_find_str(json_t* jsn, const char* cstr)
 }
 
 //------------------------------------------------------------------------------
-//int jstr_cmp(jstr_t* str, const char* cstr)
-//{
-//    // TODO
-//    char* buf = (str->chars) ? str->chars : str->buf;
-//    for ( size_t i = 0; i < str->len; ++i, cstr++ )
-//    {
-//        if (*buf != *cstr)
-//        {
-//            return *buf - *cstr;
-//        }
-//    }
-//
-//    if (cstr) return -1;
-//    return 0;
-//}
-//
-//int jstr_ncmp(jstr_t* str, const char* cstr, size_t _len)
-//{
-//    // TODO
-//    size_t len = MIN(str->len, _len);
-//    char* buf = (str->chars) ? str->chars : str->buf;
-//    for ( size_t i = 0; i < len; ++i, cstr++ )
-//    {
-//        if (*buf != *cstr)
-//        {
-//            return *buf - *cstr;
-//        }
-//    }
-//
-//    if (_len == str->len) return 0;
-//
-//    return str->len > _len ? -1 : 1;
-//}
-
-//------------------------------------------------------------------------------
 static size_t json_add_obj( json_t* j )
 {
     assert(j);
@@ -271,7 +262,7 @@ static size_t json_add_obj( json_t* j )
         .json = j,
         .cap = BUF_SIZE,
         .len = 0,
-        .kvs = NULL
+        .buf = {}
     });
     return idx;
 }
@@ -285,7 +276,7 @@ static size_t json_add_array( json_t* j )
         .json = j,
         .cap = BUF_SIZE,
         .len = 0,
-        .vals = NULL
+        .buf = {}
     });
     return idx;
 }
@@ -324,32 +315,43 @@ static inline _jarray_t* get_array(jarray_t array)
 }
 
 //------------------------------------------------------------------------------
+void jobj_truncate( _jobj_t* obj )
+{
+    if (obj->len == obj->cap)
+        return;
+
+    if (obj->cap <= BUF_SIZE)
+        return;
+
+    obj->kvs = (jkv_t*)realloc(obj->kvs, obj->len * sizeof(jkv_t));
+    obj->cap = obj->len;
+}
+
 void jobj_reserve( _jobj_t* obj, size_t cap )
 {
     if ( obj->len+cap < obj->cap)
         return;
 
-    assert( (obj->len < BUF_SIZE && !obj->kvs) || (obj->kvs && obj->len >= BUF_SIZE) );
-    cap = MAX(obj->len+cap, obj->cap*GROWTH_FACTOR+1);
+    size_t prev_cap = obj->cap;
+    obj->cap = (jsize_t)grow(obj->len+cap, obj->cap);
 
-    jkv_t* kvs = (jkv_t*)realloc( obj->kvs, cap * sizeof(jkv_t) );
-    assert (kvs);
-
-    // transition from our internal stack buffer to a heap buffer
-    if (!obj->kvs)
+    if (prev_cap <= BUF_SIZE)
     {
-        memcpy(kvs, obj->buf, obj->len * sizeof(jkv_t));
+        jkv_t* kvs = (jkv_t*)malloc( obj->cap * sizeof(jkv_t));
+        memcpy(kvs, obj->buf, sizeof(jkv_t) * obj->len);
+        obj->kvs = kvs;
     }
-    obj->kvs = kvs;
-    obj->cap = cap;
+    else
+    {
+        obj->kvs = (jkv_t*)realloc(obj->kvs, sizeof(jkv_t)*obj->cap);
+    }
 }
 
 jkv_t* jobj_get_kv(_jobj_t* obj, size_t idx)
 {
     assert(idx < obj->len);
     assert (idx < obj->len);
-    assert( (obj->len < BUF_SIZE && !obj->kvs) || (obj->kvs && obj->len >= BUF_SIZE) );
-    return (obj->kvs) ? &obj->kvs[idx] : &obj->buf[idx];
+    return (obj->cap > BUF_SIZE) ? &obj->kvs[idx] : &obj->buf[idx];
 }
 
 jkv_t* jobj_add_kv(_jobj_t* obj)
@@ -367,8 +369,8 @@ void jobj_add_num( jobj_t _obj, const char* key, jnum_t num )
     size_t kidx = json_add_str(obj->json, key);
     size_t idx = json_add_num(obj->json, num);
 
-    assert (kidx < 4294967296);
-    assert (idx < 268435456 /* 2^28 */);
+    assert (kidx < MAX_KEY_IDX);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
 
     jkv_t* kv = jobj_add_kv(obj);
     kv->key = (uint32_t)kidx;
@@ -383,8 +385,8 @@ void jobj_add_str( jobj_t _obj, const char* key, const char* str )
     size_t kidx = json_add_str(obj->json, key);
     size_t idx = json_add_str(obj->json, str);
 
-    assert (kidx < 4294967296);
-    assert (idx < 268435456 /* 2^28 */);
+    assert (kidx < MAX_KEY_IDX);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
 
     jkv_t* kv = jobj_add_kv(obj);
     kv->key = (uint32_t)kidx;
@@ -397,7 +399,7 @@ void jobj_add_bool( jobj_t _obj, const char* key, jbool b )
     _jobj_t* obj = get_obj(_obj);
 
     size_t kidx = json_add_str(obj->json, key);
-    assert (kidx < 4294967296);
+    assert (kidx < MAX_KEY_IDX);
 
     jkv_t* kv = jobj_add_kv(obj);
     kv->key = (uint32_t)kidx;
@@ -410,7 +412,7 @@ void jobj_add_nil( jobj_t _obj, const char* key )
     _jobj_t* obj = get_obj(_obj);
 
     size_t kidx = json_add_str(obj->json, key);
-    assert (kidx < 4294967296);
+    assert (kidx < MAX_KEY_IDX);
 
     jkv_t* kv = jobj_add_kv(obj);
     kv->key = (uint32_t)kidx;
@@ -424,8 +426,8 @@ jarray_t jobj_add_array( jobj_t _obj, const char* key )
     _jobj_t* obj = get_obj(_obj);
 
     size_t kidx = json_add_str(obj->json, key);
-    assert (kidx < 4294967296);
-    assert (idx < 268435456 /* 2^28 */);
+    assert (kidx < MAX_KEY_IDX);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
 
     jkv_t* kv = jobj_add_kv(obj);
     kv->key = (uint32_t)kidx;
@@ -441,8 +443,8 @@ jobj_t jobj_add_obj( jobj_t _obj, const char* key )
     _jobj_t* obj = get_obj(_obj);
 
     size_t kidx = json_add_str(obj->json, key);
-    assert (kidx < 4294967296);
-    assert (idx < 268435456 /* 2^28 */);
+    assert (kidx < MAX_KEY_IDX);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
 
     jkv_t* kv = jobj_add_kv(obj);
     kv->key = (uint32_t)kidx;
@@ -453,32 +455,43 @@ jobj_t jobj_add_obj( jobj_t _obj, const char* key )
 }
 
 //------------------------------------------------------------------------------
+void jarray_truncate( _jarray_t* array )
+{
+    if (array->len == array->cap)
+        return;
+
+    if (array->cap <= BUF_SIZE)
+        return;
+
+    array->vals = (jval_t*)realloc(array->vals, array->len * sizeof(jval_t));
+    array->cap = array->len;
+}
+
 void jarray_reserve( _jarray_t* a, size_t cap )
 {
     if ( a->len+cap < a->cap )
         return;
 
-    assert( (a->len < BUF_SIZE && !a->vals) || (a->vals && a->len >= BUF_SIZE) );
-    cap = MAX(a->len+cap, a->cap*GROWTH_FACTOR+1);
+    size_t prev_cap = a->cap;
 
-    jval_t* vals = (jval_t*)realloc( a->vals, cap * sizeof(jkv_t) );
-    assert(vals);
-
-    // transition from our internal stack buffer to a heap buffer
-    if (!a->vals)
+    a->cap = (jsize_t)grow(a->len+cap, a->cap);
+    if (prev_cap <= BUF_SIZE)
     {
+        jval_t* vals = (jval_t*)malloc( a->cap * sizeof(jkv_t) );
         memcpy(vals, a->buf, a->len * sizeof(jval_t));
+        a->vals = vals;
     }
-    a->vals = vals;
-    a->cap = cap;
+    else
+    {
+        a->vals = (jval_t*)realloc( a->vals, a->cap * sizeof(jkv_t) );
+    }
 }
 
 jval_t* jarray_get_val( _jarray_t* a, size_t idx)
 {
     assert(a);
     assert(idx < a->len);
-    assert( (a->len < BUF_SIZE && !a->vals) || (a->len >= BUF_SIZE && a->vals) );
-    return (a->vals) ? &a->vals[idx] : &a->buf[idx];
+    return (a->cap > BUF_SIZE) ? &a->vals[idx] : &a->buf[idx];
 }
 
 jval_t* jarray_add_val( _jarray_t* a)
@@ -498,7 +511,7 @@ void jarray_add_num( jarray_t _a, jnum_t num )
     jval_t* val = jarray_add_val(a);
     val->type = JTYPE_NUM;
 
-    assert (idx < 268435456 /* 2^28 */);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 }
 
@@ -510,7 +523,7 @@ void jarray_add_str( jarray_t _a, const char* str )
     jval_t* val = jarray_add_val(a);
     val->type = JTYPE_STR;
 
-    assert (idx < 268435456 /* 2^28 */);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 }
 
@@ -538,7 +551,7 @@ jarray_t jarray_add_array( jarray_t _a )
     jval_t* val = jarray_add_val(a);
     val->type = JTYPE_ARRAY;
 
-    assert (idx < 268435456 /* 2^28 */);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 
     return (jarray_t){ a->json, idx };
@@ -552,7 +565,7 @@ jobj_t jarray_add_obj( jarray_t _a )
     jval_t* val = jarray_add_val(a);
     val->type = JTYPE_OBJ;
 
-    assert (idx < 268435456 /* 2^28 */);
+    assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 
     return (jobj_t){ a->json, idx };
@@ -565,7 +578,7 @@ static inline void jstr_print( jstr_t* str, FILE* f )
     json_fprintf(f, "\"");
 
 #if PRINT
-    const char* chars = (str->chars) ? str->chars : str->buf;
+    const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
     for ( size_t i = 0; i < str->len; ++i )
     {
         putc(chars[i], f);
@@ -920,8 +933,7 @@ static inline void buf_reserve( buf_t* buf, size_t cap )
     if (buf->len+cap < buf->cap)
         return;
 
-    cap = MAX(buf->len+cap+1, buf->cap*GROWTH_FACTOR+2);
-    buf->cap = MAX(25, cap);
+    buf->cap = grow(buf->len+cap, buf->cap);
     buf->buf = (char*)realloc(buf->buf, buf->cap * sizeof(char));
     assert (buf->buf);
 }
@@ -1192,6 +1204,7 @@ inline void parse_array( jarray_t a, T& beg, const T& end )
         {
             case ']':
                 ++beg;
+                jarray_truncate(get_array(a));
                 return;
 
             case ',':
@@ -1286,6 +1299,7 @@ inline void parse_obj( jobj_t obj, T& beg, const T& end )
         {
             case '}': // end of object
                 ++beg;
+                jobj_truncate(get_obj(obj));
                 return;
 
             case ',': // another key
@@ -1304,6 +1318,109 @@ static inline jnum_t btomb(size_t bytes)
 {
     return (bytes / (jnum_t)(1024*1024));
 }
+
+class stdfile
+{
+public:
+    stdfile()
+        : m_file(NULL)
+        , m_off(0)
+        , m_pos(0)
+        , m_buflen(0)
+    {}
+
+    stdfile( const char* path )
+        : m_file(NULL)
+        , m_off(0)
+        , m_pos(0)
+        , m_buflen(0)
+    {
+        m_file = fopen(path, "r");
+        assert(m_file);
+        m_buflen = fread(m_buf, 1, sizeof(m_buf), m_file);
+        assert(m_buflen);
+    }
+
+    stdfile ( stdfile&& mv )
+        : m_file(mv.m_file)
+        , m_off(mv.m_off)
+        , m_buflen(mv.m_buflen)
+        , m_pos(mv.m_pos)
+    {
+        memcpy(m_buf, mv.m_buf, sizeof(m_buf));
+        mv.m_file = NULL;
+        mv.m_off = 0;
+    }
+
+    stdfile& operator= ( stdfile&& mv )
+    {
+        m_file = mv.m_file;
+        m_off = mv.m_off;
+        m_buflen = mv.m_buflen;
+        m_pos = mv.m_pos;
+        memcpy(m_buf, mv.m_buf, sizeof(m_buf));
+
+        mv.m_file = NULL;
+        mv.m_off = 0;
+        return *this;
+    }
+
+    stdfile( const stdfile& ) = delete;
+    stdfile& operator= ( const stdfile& ) = delete;
+
+    ~stdfile()
+    {
+        if (m_file) fclose(m_file);
+    }
+
+    bool operator== ( const stdfile& rhs ) const
+    {
+        return (m_file == rhs.m_file && m_off == rhs.m_off);
+    }
+
+    bool operator!= ( const stdfile& rhs ) const { return !this->operator==(rhs); }
+
+//    memfile operator ++(int) // postfix ++
+//    {
+//        memfile copy = *this;
+//        ++*this;
+//        return copy;
+//    }
+
+    stdfile& operator ++() // ++ prefix
+    {
+        assert(m_buflen > 0);
+        if (++m_pos >= m_buflen)
+        {
+            m_off += m_pos;
+            m_buflen = fread(m_buf, 1, sizeof(m_buf), m_file);
+            m_pos = 0;
+
+            if (m_buflen == 0)
+            {
+                fclose(m_file);
+                m_file = NULL;
+                m_off = 0;
+            }
+        }
+
+        return *this;
+    }
+
+    const char& operator*() const
+    {
+        return m_buf[m_pos];
+    }
+
+protected:
+    FILE* m_file;
+
+    size_t m_buflen;
+    size_t m_pos;
+    char m_buf[4096];
+
+    size_t m_off;
+};
 
 
 class memfile
@@ -1449,11 +1566,11 @@ protected:
 
 void print_mem_usage()
 {
-//    struct task_basic_info t_info;
-//    mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
-//    task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count);
-//
-//    printf("RAM: %0.1f MB - %0.1f\n", btomb(t_info.resident_size), btomb(t_info.virtual_size));
+    struct task_basic_info t_info;
+    mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
+    task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count);
+
+    printf("[RAM]: Actual: %0.1f MB Virtual: %0.1f MB\n", btomb(t_info.resident_size), btomb(t_info.virtual_size));
 
 // resident size is in t_info.resident_size;
 // virtual size is in t_info.virtual_size;
@@ -1498,8 +1615,15 @@ void print_mem_usage()
 json_t* json_load_file( const char* path )
 {
 
-#define PAGED_READ 0
-#if PAGED_READ
+#define PAGED_READ      0x1
+#define STD_READ        0x2
+#define ONESHOT_READ    0x4
+
+#define READ_METHOD STD_READ
+
+#if READ_METHOD == PAGED_READ
+    printf("Parsing json using [paged mmap] method\n");
+
     memfile beg = path;
     memfile end;
 
@@ -1508,10 +1632,22 @@ json_t* json_load_file( const char* path )
     parse_obj(json_root(jsn), beg, end);
     print_mem_usage();
 
-#else
+#elif READ_METHOD == STD_READ
+    printf("Parsing json using [fread] method\n");
+
+    stdfile beg = path;
+    stdfile end;
+
+    print_mem_usage();
+    json_t* jsn = json_new();
+    parse_obj(json_root(jsn), beg, end);
+    print_mem_usage();
+
+#elif READ_METHOD == ONESHOT_READ
+    printf("Parsing json using [mmap] method\n");
+
     int fd = open(path, O_RDONLY);
-    if (!fd)
-        return NULL;
+    if (!fd) return NULL;
 
     struct stat st;
     if (fstat(fd, &st) != 0)
@@ -1520,7 +1656,7 @@ json_t* json_load_file( const char* path )
         return NULL;
     }
 
-    printf("Json Size: %0.1f MB\n", btomb(st.st_size) );
+    printf("[FILE_SIZE]: %0.1f MB\n", btomb(st.st_size) );
 
     print_mem_usage();
     void* ptr = (char*)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED|MAP_NORESERVE, fd, 0);
@@ -1539,83 +1675,90 @@ json_t* json_load_file( const char* path )
 
     print_mem_usage();
 
+#else
+    #error must specify the file read method
 #endif
-//
+
+#define PRINT_MEMORY 1
+#if PRINT_MEMORY
+
 //    printf("Len: %zu Cap: %zu Load factor: %f\n", jsn->map.len, jsn->map.cap, jsn->map.len / (double)jsn->map.cap);
 //    printf("String memory: %0.1f MB\n", btomb(jsn->bytes));
-//
-//    size_t total = 0;
-//    size_t total_reserve = 0;
-//
-//    {
-//        size_t mem = 0;
-//        size_t reserve = 0;
-//        for ( size_t i = 0; i < jsn->arrays.size(); ++i )
-//        {
-//            _jarray_t* array = &jsn->arrays[i];
-//            if (array->cap > BUF_SIZE)
-//            {
-//                mem += array->len * sizeof(jval_t);
-//                reserve += array->cap * sizeof(jval_t);
-//            }
-//        }
-//        mem += jsn->arrays.size() * sizeof(_jarray_t);
-//        reserve += jsn->arrays.capacity() * sizeof(_jarray_t);
-//        printf("[ARRAY] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
-//
-//        total += mem;
-//        total_reserve += reserve;
-//    }
-//
-//    {
-//        size_t mem = 0;
-//        size_t reserve = 0;
-//        for ( size_t i = 0; i < jsn->objs.size(); ++i )
-//        {
-//            _jobj_t* obj = &jsn->objs[i];
-//            if (obj->cap > BUF_SIZE)
-//            {
-//                mem += obj->len * sizeof(jkv_t);
-//                reserve += obj->cap * sizeof(jkv_t);
-//            }
-//        }
-//        mem += jsn->objs.size() * sizeof(_jobj_t);
-//        reserve += jsn->objs.capacity() * sizeof(_jobj_t);
-//        printf("[OBJECT] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
-//
-//        total += mem;
-//        total_reserve += reserve;
-//    }
-//
-//    {
-//        size_t mem = 0;
-//        size_t reserve = 0;
-//        for ( size_t i = 0; i < jsn->strs.size(); ++i )
-//        {
-//            jstr_t* str = &jsn->strs[i];
-//            mem += str->len;
-//            reserve += str->len;
-//        }
-//        mem += jsn->strs.size() * sizeof(jstr_t);
-//        reserve += jsn->strs.capacity() * sizeof(jstr_t);
-//        printf("[STRING] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
-//
-//        total += mem;
-//        total_reserve += reserve;
-//    }
-//
-//    {
-//        size_t mem = 0;
-//        size_t reserve = 0;
-//        mem += jsn->nums.size() * sizeof(jnum_t);
-//        reserve += jsn->nums.capacity() * sizeof(jnum_t);
-//
-//        printf("[NUMBERS] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
-//
-//        total += mem;
-//        total_reserve += reserve;
-//    }
-//
-//    printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
+
+    size_t total = 0;
+    size_t total_reserve = 0;
+
+    {
+        size_t mem = 0;
+        size_t reserve = 0;
+        for ( size_t i = 0; i < jsn->arrays.size(); ++i )
+        {
+            _jarray_t* array = &jsn->arrays[i];
+            if (array->cap > BUF_SIZE)
+            {
+                mem += array->len * sizeof(jval_t);
+                reserve += array->cap * sizeof(jval_t);
+            }
+        }
+        mem += jsn->arrays.size() * sizeof(_jarray_t);
+        reserve += jsn->arrays.capacity() * sizeof(_jarray_t);
+        printf("[ARRAY] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->arrays.size());
+
+        total += mem;
+        total_reserve += reserve;
+    }
+
+    {
+        size_t mem = 0;
+        size_t reserve = 0;
+        for ( size_t i = 0; i < jsn->objs.size(); ++i )
+        {
+            _jobj_t* obj = &jsn->objs[i];
+            if (obj->cap > BUF_SIZE)
+            {
+                mem += obj->len * sizeof(jkv_t);
+                reserve += obj->cap * sizeof(jkv_t);
+            }
+        }
+        mem += jsn->objs.size() * sizeof(_jobj_t);
+        reserve += jsn->objs.capacity() * sizeof(_jobj_t);
+        printf("[OBJECT] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->objs.size());
+
+        total += mem;
+        total_reserve += reserve;
+    }
+
+    {
+        size_t mem = 0;
+        size_t reserve = 0;
+        for ( size_t i = 0; i < jsn->strs.size(); ++i )
+        {
+            jstr_t* str = &jsn->strs[i];
+            mem += str->len;
+            reserve += str->len;
+        }
+        mem += jsn->strs.size() * sizeof(jstr_t);
+        reserve += jsn->strs.capacity() * sizeof(jstr_t);
+        printf("[STRING] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+
+        total += mem;
+        total_reserve += reserve;
+    }
+
+    {
+        size_t mem = 0;
+        size_t reserve = 0;
+        mem += jsn->nums.size() * sizeof(jnum_t);
+        reserve += jsn->nums.capacity() * sizeof(jnum_t);
+
+        printf("[NUMBERS] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+
+        total += mem;
+        total_reserve += reserve;
+    }
+
+    printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
+#endif
+
     return jsn;
 }

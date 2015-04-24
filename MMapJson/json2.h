@@ -18,6 +18,7 @@
 
 typedef double jnum_t;
 typedef uint8_t jbool;
+typedef uint32_t jsize_t;
 
 //------------------------------------------------------------------------------
 enum jtype
