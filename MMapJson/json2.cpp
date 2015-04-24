@@ -163,7 +163,7 @@ uint32_t murmur3_32(const char *key, size_t len, uint32_t seed)
 uint32_t strhash( const char* key, size_t len )
 {
     static const uint32_t MURMER32_SEED = 0;
-    static const size_t MAX_CHARS = 30;
+    static const size_t MAX_CHARS = 32;
     return murmur3_32(key, MIN(MAX_CHARS, len), MURMER32_SEED);
 }
 
@@ -209,6 +209,7 @@ size_t json_find_str(json_t* jsn, const char* cstr)
     jmap_t* map = &jsn->map;
     if (!map->buckets)
     {
+        // TODO: auto adjust hash based on load factor
         map->cap = 1024*1024;
         map->buckets = (jmapbucket_t*)calloc( sizeof(jmapbucket_t), map->cap );
     }
