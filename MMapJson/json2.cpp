@@ -253,6 +253,16 @@ size_t json_find_str(json_t* jsn, const char* cstr)
 }
 
 //------------------------------------------------------------------------------
+static json_t* jarray_get_json( _jarray_t* array )
+{
+    return array->json;
+}
+
+static json_t* jobj_get_json( _jobj_t* obj )
+{
+    return obj->json;
+}
+
 static size_t json_add_obj( json_t* j )
 {
     assert(j);
@@ -301,7 +311,7 @@ static inline _jobj_t* get_obj(jobj_t obj)
     assert(obj.json);
     assert(obj.idx < obj.json->objs.size());
     _jobj_t* rt = &obj.json->objs[obj.idx];
-    assert(rt->json == obj.json);
+    assert(jobj_get_json(rt) == obj.json);
     return rt;
 }
 
@@ -310,7 +320,7 @@ static inline _jarray_t* get_array(jarray_t array)
     assert(array.json);
     assert(array.idx < array.json->arrays.size());
     _jarray_t* rt = &array.json->arrays[array.idx];
-    assert(rt->json == array.json);
+    assert(jarray_get_json(rt) == array.json);
     return rt;
 }
 
@@ -366,8 +376,8 @@ void jobj_add_num( jobj_t _obj, const char* key, jnum_t num )
 {
     _jobj_t* obj = get_obj(_obj);
 
-    size_t kidx = json_add_str(obj->json, key);
-    size_t idx = json_add_num(obj->json, num);
+    size_t kidx = json_add_str(jobj_get_json(obj), key);
+    size_t idx = json_add_num(jobj_get_json(obj), num);
 
     assert (kidx < MAX_KEY_IDX);
     assert (idx < MAX_VAL_IDX /* 2^28 */);
@@ -382,8 +392,8 @@ void jobj_add_str( jobj_t _obj, const char* key, const char* str )
 {
     _jobj_t* obj = get_obj(_obj);
 
-    size_t kidx = json_add_str(obj->json, key);
-    size_t idx = json_add_str(obj->json, str);
+    size_t kidx = json_add_str(jobj_get_json(obj), key);
+    size_t idx = json_add_str(jobj_get_json(obj), str);
 
     assert (kidx < MAX_KEY_IDX);
     assert (idx < MAX_VAL_IDX /* 2^28 */);
@@ -398,7 +408,7 @@ void jobj_add_bool( jobj_t _obj, const char* key, jbool b )
 {
     _jobj_t* obj = get_obj(_obj);
 
-    size_t kidx = json_add_str(obj->json, key);
+    size_t kidx = json_add_str(jobj_get_json(obj), key);
     assert (kidx < MAX_KEY_IDX);
 
     jkv_t* kv = jobj_add_kv(obj);
@@ -411,7 +421,7 @@ void jobj_add_nil( jobj_t _obj, const char* key )
 {
     _jobj_t* obj = get_obj(_obj);
 
-    size_t kidx = json_add_str(obj->json, key);
+    size_t kidx = json_add_str(jobj_get_json(obj), key);
     assert (kidx < MAX_KEY_IDX);
 
     jkv_t* kv = jobj_add_kv(obj);
@@ -424,8 +434,9 @@ jarray_t jobj_add_array( jobj_t _obj, const char* key )
 {
     size_t idx = json_add_array(_obj.json);
     _jobj_t* obj = get_obj(_obj);
+    json_t* jsn = jobj_get_json(obj);
 
-    size_t kidx = json_add_str(obj->json, key);
+    size_t kidx = json_add_str(jsn, key);
     assert (kidx < MAX_KEY_IDX);
     assert (idx < MAX_VAL_IDX /* 2^28 */);
 
@@ -433,7 +444,7 @@ jarray_t jobj_add_array( jobj_t _obj, const char* key )
     kv->key = (uint32_t)kidx;
     kv->val.type = JTYPE_ARRAY;
     kv->val.idx = (uint32_t)idx;
-    return (jarray_t){ obj->json, idx };
+    return (jarray_t){ jsn, idx };
 }
 
 jobj_t jobj_add_obj( jobj_t _obj, const char* key )
@@ -441,8 +452,9 @@ jobj_t jobj_add_obj( jobj_t _obj, const char* key )
     size_t idx = json_add_obj(_obj.json);
 
     _jobj_t* obj = get_obj(_obj);
+    json_t* jsn = jobj_get_json(obj);
 
-    size_t kidx = json_add_str(obj->json, key);
+    size_t kidx = json_add_str(jsn, key);
     assert (kidx < MAX_KEY_IDX);
     assert (idx < MAX_VAL_IDX /* 2^28 */);
 
@@ -451,7 +463,7 @@ jobj_t jobj_add_obj( jobj_t _obj, const char* key )
     kv->val.type = JTYPE_OBJ;
     kv->val.idx = (uint32_t)idx;
 
-    return (jobj_t){ obj->json, idx };
+    return (jobj_t){ jsn, idx };
 }
 
 //------------------------------------------------------------------------------
@@ -554,7 +566,7 @@ jarray_t jarray_add_array( jarray_t _a )
     assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 
-    return (jarray_t){ a->json, idx };
+    return (jarray_t){ jarray_get_json(a), idx };
 }
 
 jobj_t jarray_add_obj( jarray_t _a )
@@ -568,7 +580,7 @@ jobj_t jarray_add_obj( jarray_t _a )
     assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 
-    return (jobj_t){ a->json, idx };
+    return (jobj_t){ jarray_get_json(a), idx };
 }
 
 //------------------------------------------------------------------------------
@@ -602,7 +614,7 @@ static inline void jarray_print(jarray_t _root, size_t depth, FILE* f)
 
     _jarray_t* root = get_array(_root);
 
-    json_t* j = root->json;
+    json_t* jsn = jarray_get_json(root);
     for ( size_t i = 0; i < root->len; ++i )
     {
         jval_t* val = jarray_get_val(root, i);
@@ -617,23 +629,23 @@ static inline void jarray_print(jarray_t _root, size_t depth, FILE* f)
                 break;
 
             case JTYPE_STR:
-                jstr_print(&j->strs[val->idx], f);
+                jstr_print(&jsn->strs[val->idx], f);
                 break;
 
             case JTYPE_NUM:
             {
-                jnum_t num = j->nums[val->idx];
+                jnum_t num = jsn->nums[val->idx];
                 jnum_t fract = num - floor(num);
                 json_fprintf(f, (fract > 0) ? "%f" : "%0.0f", num);
                 break;
             }
 
             case JTYPE_ARRAY:
-                jarray_print((jarray_t){root->json, val->idx}, depth+1, f);
+                jarray_print((jarray_t){jsn, val->idx}, depth+1, f);
                 break;
 
             case JTYPE_OBJ:
-                jobj_print((jobj_t){root->json, val->idx}, depth+1, f);
+                jobj_print((jobj_t){jsn, val->idx}, depth+1, f);
                 break;
 
             case JTYPE_TRUE:
@@ -663,11 +675,11 @@ static inline void jobj_print(jobj_t _root, size_t depth, FILE* f)
 
     _jobj_t* root = get_obj(_root);
 
-    json_t* j = root->json;
+    json_t* jsn = jobj_get_json(root);
     for ( size_t i = 0; i < root->len; ++i )
     {
         jkv_t* kv = jobj_get_kv(root, i);
-        jstr_t* key = &j->strs[kv->key];
+        jstr_t* key = &jsn->strs[kv->key];
 
         json_fprintf(f, "\n");
         print_tabs(depth+1, f);
@@ -681,19 +693,19 @@ static inline void jobj_print(jobj_t _root, size_t depth, FILE* f)
                 break;
 
             case JTYPE_STR:
-                jstr_print(&j->strs[kv->val.idx], f);
+                jstr_print(&jsn->strs[kv->val.idx], f);
                 break;
 
             case JTYPE_NUM:
-                json_fprintf(f, "%f", j->nums[kv->val.idx]);
+                json_fprintf(f, "%f", jsn->nums[kv->val.idx]);
                 break;
 
             case JTYPE_ARRAY:
-                jarray_print((jarray_t){root->json, kv->val.idx}, depth+1, f);
+                jarray_print((jarray_t){jsn, kv->val.idx}, depth+1, f);
                 break;
 
             case JTYPE_OBJ:
-                jobj_print((jobj_t){root->json, kv->val.idx}, depth+1, f);
+                jobj_print((jobj_t){jsn, kv->val.idx}, depth+1, f);
                 break;
 
             case JTYPE_TRUE:
