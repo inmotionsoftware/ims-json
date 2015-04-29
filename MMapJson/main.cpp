@@ -70,8 +70,8 @@ int main(int argc, const char * argv[])
 ////
 //////    std::cout << doc << std::endl;
 //
-////    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
-    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
+    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
+//    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
 //    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/medium.json";
 
     printf("starting test\n");
@@ -80,7 +80,7 @@ int main(int argc, const char * argv[])
     assert(jsn);
     clock_t diff = clock() - start;
     printf("completed in: %f secs\n", diff / (double)CLOCKS_PER_SEC);
-//    json_print(jsn, stdout);
+    json_print(jsn, stdout);
 
     printf("done\n");
 //

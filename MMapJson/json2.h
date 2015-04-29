@@ -89,41 +89,35 @@ struct jmapbucket_t
 //------------------------------------------------------------------------------
 struct jmap_t
 {
-    json_t* json;
-    size_t cap;
     size_t len;
+    size_t cap;
+    size_t nbuckets;
     jmapbucket_t* buckets;
+    jstr_t* strs;
 };
 
 void jmap_init(jmap_t* map);
+size_t jmap_find_str(jmap_t*, const char*);
+jstr_t* jmap_get_str(jmap_t*, size_t);
 
-struct blah_t
+struct jlist_t
 {
     json_t* json;
+    size_t len;
+    size_t cap;
     char data[0];
 };
 
 //------------------------------------------------------------------------------
 struct json_t
 {
-    size_t strs_len;
-    size_t strs_cap;
-    jstr_t* strs;
-
     // objs
     size_t nums_len;
     size_t nums_cap;
     jnum_t* nums;
 
-    // objs
-    size_t objs_len;
-    size_t objs_cap;
-    blah_t* objs;
-
-    // arrays
-    size_t arrays_len;
-    size_t arrays_cap;
-    blah_t* arrays;
+    jlist_t* objs;
+    jlist_t* arrays;
 
     struct jmap_t strmap;
 
