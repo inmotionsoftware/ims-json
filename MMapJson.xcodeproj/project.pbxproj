@@ -106,7 +106,7 @@
 		E77A13D31AD5D443001068F1 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0620;
+				LastUpgradeCheck = 0630;
 				ORGANIZATIONNAME = "InMotion Software, LLC";
 				TargetAttributes = {
 					E77A13DA1AD5D443001068F1 = {

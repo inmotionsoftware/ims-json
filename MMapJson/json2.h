@@ -68,12 +68,15 @@ jobj_t jarray_add_obj(jarray_t a);
 struct _jobj_t;
 struct _jarray_t;
 
-struct buf_t
+struct jbuf_t
 {
     size_t cap;
     size_t len;
-    char* buf;
+    char* ptr;
 };
+
+void jbuf_init(jbuf_t*);
+void jbuf_destroy(jbuf_t*);
 
 //------------------------------------------------------------------------------
 struct jmapbucket_t
@@ -86,6 +89,7 @@ struct jmapbucket_t
 //------------------------------------------------------------------------------
 struct jmap_t
 {
+    json_t* json;
     size_t cap;
     size_t len;
     jmapbucket_t* buckets;
@@ -93,19 +97,38 @@ struct jmap_t
 
 void jmap_init(jmap_t* map);
 
+struct blah_t
+{
+    json_t* json;
+    char data[0];
+};
+
 //------------------------------------------------------------------------------
 struct json_t
 {
-    std::vector<jnum_t> nums;
-    std::vector<jstr_t> strs;
-    std::vector<_jobj_t> objs;
-    std::vector<_jarray_t> arrays;
+    size_t strs_len;
+    size_t strs_cap;
+    jstr_t* strs;
 
-    struct jmap_t map;
+    // objs
+    size_t nums_len;
+    size_t nums_cap;
+    jnum_t* nums;
 
-    size_t bytes;
+    // objs
+    size_t objs_len;
+    size_t objs_cap;
+    blah_t* objs;
 
-    buf_t buf;
+    // arrays
+    size_t arrays_len;
+    size_t arrays_cap;
+    blah_t* arrays;
+
+    struct jmap_t strmap;
+
+    jbuf_t keybuf; // buffer for temporarily storing the key string
+    jbuf_t valbuf; // buffer for temporarily storing the value string
 };
 
 json_t* json_load_file( const char* path );

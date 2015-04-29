@@ -40,10 +40,12 @@
 #define MAX_VAL_IDX 268435456 // 2^28
 #define MAX_KEY_IDX UINT32_MAX
 
+void jmap_rehash(jmap_t* map);
+
 //------------------------------------------------------------------------------
 static inline size_t grow( size_t min, size_t cur )
 {
-    static const jnum_t GROWTH_FACTOR = 1.05;
+    static const jnum_t GROWTH_FACTOR = 1.1;
     assert(min >= cur);
 
     size_t size;
@@ -83,7 +85,7 @@ struct jkv_t
 //------------------------------------------------------------------------------
 struct _jobj_t
 {
-    struct json_t* json;
+    jsize_t idx;
     jsize_t cap;
     jsize_t len;
     union
@@ -96,7 +98,7 @@ struct _jobj_t
 //------------------------------------------------------------------------------
 struct _jarray_t
 {
-    struct json_t* json;
+    jsize_t idx;
     jsize_t cap;
     jsize_t len;
     union
@@ -170,9 +172,14 @@ uint32_t strhash( const char* key, size_t len )
 size_t json_new_str(json_t* jsn, const char* cstr, size_t len, uint32_t hash)
 {
     // not found, create a new one
-    size_t rt = jsn->strs.size();
-    jsn->strs.emplace_back();
-    jstr_t* jstr = &jsn->strs.back();
+    if (jsn->strs_len+1 >= jsn->strs_cap)
+    {
+        jsn->strs_cap = grow(jsn->strs_len+1, jsn->strs_cap);
+        jsn->strs = (jstr_t*)realloc(jsn->strs, sizeof(jstr_t)*jsn->strs_cap);
+    }
+
+    size_t idx = jsn->strs_len++;
+    jstr_t* jstr = &jsn->strs[idx];
 
     jstr->hash = hash;
     jstr->len = len;
@@ -187,32 +194,17 @@ size_t json_new_str(json_t* jsn, const char* cstr, size_t len, uint32_t hash)
         buf = jstr->buf;
     }
 
-    jsn->bytes += len;
     memcpy(buf, cstr, len * sizeof(char));
-    return rt;
+    return idx;
 }
-
-//void jmap_rebuild( jmap_t* map )
-//{
-//    static const double load_factor = 0.2;
-//
-//    size_t cap = ceil( (double)map->len * (1.0-load_factor));
-//    map->buckets = (jmapbucket_t*)realloc(map->buckets, sizeof(jmapbucket_t) * cap);
-//
-//}
 
 size_t json_find_str(json_t* jsn, const char* cstr)
 {
     size_t slen = strlen(cstr);
     uint32_t hash = strhash(cstr, slen);
 
-    jmap_t* map = &jsn->map;
-    if (!map->buckets)
-    {
-        // TODO: auto adjust hash based on load factor
-        map->cap = 1024*1024;
-        map->buckets = (jmapbucket_t*)calloc( sizeof(jmapbucket_t), map->cap );
-    }
+    jmap_t* map = &jsn->strmap;
+    jmap_rehash(map);
 
     size_t idx = hash % map->cap;
     jmapbucket_t* bucket = &map->buckets[idx];
@@ -240,7 +232,7 @@ size_t json_find_str(json_t* jsn, const char* cstr)
         if (req >= bucket->cap)
         {
             bucket->cap = grow(req, bucket->cap);
-            bucket->slots = (size_t*)calloc(sizeof(size_t), bucket->cap);
+            bucket->slots = (size_t*)realloc(bucket->slots, sizeof(bucket->slots[0]) * bucket->cap );
         }
 
         // not found, create a new one
@@ -256,47 +248,94 @@ size_t json_find_str(json_t* jsn, const char* cstr)
 //------------------------------------------------------------------------------
 static json_t* jarray_get_json( _jarray_t* array )
 {
-    return array->json;
+    const void* ptr = (array - array->idx);
+    size_t offset = offsetof(blah_t, data);
+    blah_t* b = (blah_t*)( (char*)ptr - offset);
+    return b->json;
 }
 
 static json_t* jobj_get_json( _jobj_t* obj )
 {
-    return obj->json;
+    const void* ptr = (obj - obj->idx);
+    size_t offset = offsetof(blah_t, data);
+    blah_t* b = (blah_t*)( (char*)ptr - offset);
+    return b->json;
 }
 
-static size_t json_add_obj( json_t* j )
+static void json_objs_reserve( json_t* jsn, size_t len )
 {
-    assert(j);
-    size_t idx = j->objs.size();
-    j->objs.push_back( (_jobj_t)
-    {
-        .json = j,
-        .cap = BUF_SIZE,
-        .len = 0,
-        .buf = {}
-    });
+    if (jsn->objs_len+len < jsn->objs_cap)
+        return;
+
+    jsn->objs_cap = grow(jsn->objs_len+len, jsn->objs_cap);
+    jsn->objs = (blah_t*)realloc(jsn->objs, sizeof(blah_t) + sizeof(_jobj_t) * jsn->objs_cap);
+    jsn->objs->json = jsn;
+}
+
+static _jobj_t* json_get_obj( json_t* jsn, size_t idx )
+{
+    assert(jsn);
+    assert(jsn->objs);
+    assert(idx < jsn->objs_len);
+    return ((_jobj_t*)jsn->objs->data) + idx;
+}
+
+static size_t json_add_obj( json_t* jsn )
+{
+    assert(jsn);
+    json_objs_reserve(jsn, 1);
+
+    size_t idx = jsn->objs_len++;
+    _jobj_t* obj = json_get_obj(jsn, idx);
+    obj->cap = BUF_SIZE;
+    obj->len = 0;
+    obj->idx = (jsize_t)idx;
     return idx;
 }
 
-static size_t json_add_array( json_t* j )
+static void json_arrays_reserve( json_t* jsn, size_t len )
 {
-    assert(j);
-    size_t idx = j->arrays.size();
-    j->arrays.push_back((_jarray_t)
-    {
-        .json = j,
-        .cap = BUF_SIZE,
-        .len = 0,
-        .buf = {}
-    });
+    if (jsn->arrays_len+len < jsn->arrays_cap)
+        return;
+
+    jsn->arrays_cap = grow(jsn->arrays_len+len, jsn->arrays_cap);
+    jsn->arrays = (blah_t*)realloc(jsn->arrays, sizeof(blah_t) + sizeof(_jarray_t) * jsn->arrays_cap);
+    jsn->arrays->json = jsn;
+}
+
+static _jarray_t* json_get_array( json_t* jsn, size_t idx )
+{
+    assert(jsn);
+    assert(jsn->arrays);
+    assert(idx < jsn->arrays_len);
+    return ((_jarray_t*)jsn->arrays->data) + idx;
+}
+
+static size_t json_add_array( json_t* jsn )
+{
+    assert(jsn);
+    json_arrays_reserve(jsn, 1);
+
+    size_t idx = jsn->arrays_len++;
+    _jarray_t* array = json_get_array(jsn, idx);
+    array->cap = BUF_SIZE;
+    array->len = 0;
+    array->idx = (jsize_t)idx;
     return idx;
 }
 
-static size_t json_add_num( json_t* j, jnum_t n )
+static size_t json_add_num( json_t* jsn, jnum_t n )
 {
-    assert(j);
-    size_t idx = j->nums.size();
-    j->nums.push_back(n);
+    assert(jsn);
+
+    if (jsn->nums_len+1 >= jsn->nums_cap)
+    {
+        jsn->nums_cap = grow(jsn->nums_len+1, jsn->nums_cap);
+        jsn->nums = (jnum_t*)realloc(jsn->nums, jsn->nums_cap * sizeof(jnum_t));
+    }
+
+    size_t idx = jsn->nums_len++;
+    jsn->nums[idx] = n;
     return idx;
 }
 
@@ -310,19 +349,14 @@ static size_t json_add_str( json_t* j, const char* str )
 static inline _jobj_t* get_obj(jobj_t obj)
 {
     assert(obj.json);
-    assert(obj.idx < obj.json->objs.size());
-    _jobj_t* rt = &obj.json->objs[obj.idx];
-    assert(jobj_get_json(rt) == obj.json);
-    return rt;
+    assert(obj.idx < obj.json->objs_len);
+    return json_get_obj(obj.json, obj.idx);
 }
 
 static inline _jarray_t* get_array(jarray_t array)
 {
     assert(array.json);
-    assert(array.idx < array.json->arrays.size());
-    _jarray_t* rt = &array.json->arrays[array.idx];
-    assert(jarray_get_json(rt) == array.json);
-    return rt;
+    return json_get_array(array.json, array.idx);
 }
 
 //------------------------------------------------------------------------------
@@ -567,7 +601,7 @@ jarray_t jarray_add_array( jarray_t _a )
     assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 
-    return (jarray_t){ jarray_get_json(a), idx };
+    return (jarray_t){ _a.json, idx };
 }
 
 jobj_t jarray_add_obj( jarray_t _a )
@@ -581,7 +615,7 @@ jobj_t jarray_add_obj( jarray_t _a )
     assert (idx < MAX_VAL_IDX /* 2^28 */);
     val->idx = (uint32_t)idx;
 
-    return (jobj_t){ jarray_get_json(a), idx };
+    return (jobj_t){ _a.json, idx };
 }
 
 //------------------------------------------------------------------------------
@@ -731,11 +765,72 @@ static inline void jobj_print(jobj_t _root, size_t depth, FILE* f)
 }
 
 //------------------------------------------------------------------------------
-void jmap_init(jmap_t* map)
+void jmap_init(jmap_t* map, json_t* jsn)
 {
     map->cap = 0;
     map->len = 0;
     map->buckets = NULL;
+    map->json = jsn;
+}
+
+void jmap_destroy(jmap_t* map)
+{
+    for ( size_t i = 0; i < map->cap; i++ )
+    {
+        jmapbucket_t* bucket = &map->buckets[i];
+        if (bucket->slots)
+        {
+            free(bucket->slots);
+        }
+    }
+
+    free(map->buckets);
+}
+
+void _jmap_add(jmap_t* map, uint32_t hash, size_t val)
+{
+    assert(map);
+    assert(map->buckets);
+
+    size_t idx = hash % map->cap;
+    jmapbucket_t* bucket = &map->buckets[idx];
+    if ( bucket->len+1 >= bucket->cap )
+    {
+        bucket->cap = grow(bucket->len+1, bucket->cap);
+        bucket->slots = (size_t*)realloc( bucket->slots, sizeof(size_t) * bucket->cap );
+    }
+    bucket->slots[bucket->len++] = val;
+}
+
+void jmap_rehash(jmap_t* map)
+{
+    float load = map->len / (float)map->cap;
+    if (map->cap > 0 && load <= 0.8)
+        return;
+
+    size_t target = ceilf(map->cap / 0.3f);
+
+    json_t* jsn = map->json;
+    jmap_t copy = {0};
+    copy.json = map->json;
+    copy.cap = MAX(13, target);
+    copy.len = map->len;
+    copy.buckets = (jmapbucket_t*)calloc(copy.cap, sizeof(jmapbucket_t));
+
+    for ( size_t i = 0; i < map->cap; i++ )
+    {
+        jmapbucket_t* src = &map->buckets[i];
+        if (!src) continue;
+
+        for ( size_t n = 0; n < src->len; n++ )
+        {
+            jstr_t* str = &jsn->strs[src->slots[n]];
+            _jmap_add(&copy, str->hash, src->slots[n]);
+        }
+    }
+
+    jmap_destroy(map);
+    *map = copy;
 }
 
 //------------------------------------------------------------------------------
@@ -745,24 +840,109 @@ void json_print(json_t* j, FILE* f)
     json_fprintf(f, "\n");
 }
 
+void jbuf_init(jbuf_t* buf)
+{
+    assert(buf);
+    buf->cap = 0;
+    buf->len = 0;
+    buf->ptr = NULL;
+}
+
+void jbuf_destroy(jbuf_t* buf)
+{
+    assert(buf);
+    free(buf->ptr);
+    jbuf_init(buf);
+}
+
 json_t* json_new()
 {
-    json_t* j = new json_t();
+    json_t* j = (json_t*)calloc(1, sizeof(json_t));
 
-    jmap_init(&j->map);
+    jmap_init(&j->strmap, j);
 
-    j->bytes = 0;
-    j->buf.len = 0;
-    j->buf.cap = 0;
-    j->buf.buf = NULL;
+    // strs
+    j->strs_len = 0;
+    j->strs_cap = 0;
+    j->strs = NULL;
+
+    // nums
+    j->nums_len = 0;
+    j->nums_cap = 0;
+    j->nums = NULL;
+
+    // arrays
+    j->arrays_len = 0;
+    j->arrays_cap = 0;
+    j->arrays = NULL;
+
+    // objects
+    j->objs_len = 0;
+    j->objs_cap = 0;
+    j->objs = NULL;
+
+    json_arrays_reserve(j, 5); // intial
+
+    jbuf_init(&j->keybuf);
+    jbuf_init(&j->valbuf);
+
     size_t idx = json_add_obj(j);
     assert(idx == 0);
     return j;
 }
 
+void json_destroy(json_t* j)
+{
+    assert(j);
+
+    // cleanup string map
+    jmap_destroy(&j->strmap);
+
+    // cleanup numbers
+    free(j->nums);
+
+    // cleanup objects
+    for ( size_t i = 0; i < j->arrays_len; i++ )
+    {
+        _jobj_t* obj = &((_jobj_t*)j->objs->data)[i];
+        if (obj->cap > BUF_SIZE)
+        {
+            free(obj->kvs);
+        }
+    }
+    free(j->objs);
+
+    // cleanup arrays
+    for ( size_t i = 0; i < j->arrays_len; i++ )
+    {
+        _jarray_t* array = &((_jarray_t*)j->arrays->data)[i];
+        if (array->cap > BUF_SIZE)
+        {
+            free(array->vals);
+        }
+    }
+    free(j->arrays);
+
+    // cleanup strings
+    for ( size_t i = 0; i < j->strs->len; i++ )
+    {
+        jstr_t* str = &j->strs[i];
+        if (str->len > BUF_SIZE)
+        {
+            free(str->chars);
+        }
+    }
+    free(j->strs);
+
+    // cleanup the buffers
+    jbuf_destroy(&j->keybuf);
+    jbuf_destroy(&j->valbuf);
+}
+
 void json_free(json_t* j)
 {
-    delete j;
+    json_destroy(j);
+    free(j);
 }
 
 jobj_t json_root(json_t* j)
@@ -933,32 +1113,32 @@ inline unsigned char char_to_hex(T& beg, const T& end)
     return 0;
 }
 
-static inline void buf_clear( buf_t* buf )
+static inline void buf_clear( jbuf_t* buf )
 {
-    if (buf->buf && buf->len > 0)
-        buf->buf[0] = '\0';
+    if (buf->ptr && buf->len > 0)
+        buf->ptr[0] = '\0';
 
     buf->len = 0;
 }
 
-static inline void buf_reserve( buf_t* buf, size_t cap )
+static inline void buf_reserve( jbuf_t* buf, size_t cap )
 {
     if (buf->len+cap < buf->cap)
         return;
 
     buf->cap = grow(buf->len+cap, buf->cap);
-    buf->buf = (char*)realloc(buf->buf, buf->cap * sizeof(char));
-    assert (buf->buf);
+    buf->ptr = (char*)realloc(buf->ptr, buf->cap * sizeof(char));
+    assert (buf->ptr);
 }
 
-static inline void buf_add( buf_t* buf, char ch )
+static inline void buf_add( jbuf_t* buf, char ch )
 {
     buf_reserve(buf, 1);
-    buf->buf[buf->len++] = ch;
+    buf->ptr[buf->len++] = ch;
 }
 
 //------------------------------------------------------------------------------
-static inline void utf8_encode(int32_t codepoint, buf_t* str )
+static inline void utf8_encode(int32_t codepoint, jbuf_t* str )
 {
     json_assert(codepoint > 0, "invalid unicode");
     if(codepoint < 0x80)
@@ -1001,7 +1181,7 @@ inline unsigned int read_unicode_hex(T& beg, const T& end)
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void parse_unicode( buf_t* str, T& beg, const T& end )
+inline void parse_unicode( jbuf_t* str, T& beg, const T& end )
 {
     // U+XXXX
     unsigned int val = read_unicode_hex(beg, end);
@@ -1031,7 +1211,7 @@ inline void parse_unicode( buf_t* str, T& beg, const T& end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline void parse_string( T& beg, const T& end, buf_t* str )
+inline void parse_string( T& beg, const T& end, jbuf_t* str )
 {
     json_assert(beg != end, "unexpected end of file");
     json_assert(*beg == '"', "not a valid string: '%c'", *beg);
@@ -1173,9 +1353,9 @@ inline void parse_array( jarray_t a, T& beg, const T& end )
 
             case '"': // string
             {
-                buf_t* buf = &a.json->buf;
+                jbuf_t* buf = &a.json->valbuf;
                 parse_string(beg, end, buf);
-                jarray_add_str(a, buf->buf);
+                jarray_add_str(a, buf->ptr);
                 break;
             }
 
@@ -1242,8 +1422,8 @@ inline void parse_obj( jobj_t obj, T& beg, const T& end )
     {
         eat_whitespace(beg, end);
 
-        parse_string(beg, end, &jsn->buf);
-        const char* key = jsn->buf.buf;
+        parse_string(beg, end, &jsn->keybuf);
+        const char* key = jsn->keybuf.ptr;
 
         eat_whitespace(beg, end);
         json_assert(*beg == ':', "invalid character '%c', following key, expected: ':'", *beg); ++beg;
@@ -1265,10 +1445,8 @@ inline void parse_obj( jobj_t obj, T& beg, const T& end )
 
             case '"': // string
             {
-                buf_t buf = {0};
-                parse_string(beg, end, &buf);
-                jobj_add_str(obj, key, buf.buf);
-                free(buf.buf);
+                parse_string(beg, end, &jsn->valbuf);
+                jobj_add_str(obj, key, jsn->valbuf.ptr);
                 break;
             }
 
@@ -1632,7 +1810,7 @@ json_t* json_load_file( const char* path )
 #define STD_READ        0x2
 #define ONESHOT_READ    0x4
 
-#define READ_METHOD STD_READ
+#define READ_METHOD ONESHOT_READ
 
 #if READ_METHOD == PAGED_READ
     printf("Parsing json using [paged mmap] method\n");
@@ -1704,18 +1882,18 @@ json_t* json_load_file( const char* path )
     {
         size_t mem = 0;
         size_t reserve = 0;
-        for ( size_t i = 0; i < jsn->arrays.size(); ++i )
+        for ( size_t i = 0; i < jsn->arrays_len; ++i )
         {
-            _jarray_t* array = &jsn->arrays[i];
+            _jarray_t* array = json_get_array(jsn, i);
             if (array->cap > BUF_SIZE)
             {
                 mem += array->len * sizeof(jval_t);
                 reserve += array->cap * sizeof(jval_t);
             }
         }
-        mem += jsn->arrays.size() * sizeof(_jarray_t);
-        reserve += jsn->arrays.capacity() * sizeof(_jarray_t);
-        printf("[ARRAY] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->arrays.size());
+        mem += jsn->arrays_len * sizeof(_jarray_t);
+        reserve += jsn->arrays_cap * sizeof(_jarray_t);
+        printf("[ARRAY] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->arrays_len);
 
         total += mem;
         total_reserve += reserve;
@@ -1724,18 +1902,18 @@ json_t* json_load_file( const char* path )
     {
         size_t mem = 0;
         size_t reserve = 0;
-        for ( size_t i = 0; i < jsn->objs.size(); ++i )
+        for ( size_t i = 0; i < jsn->objs_len; ++i )
         {
-            _jobj_t* obj = &jsn->objs[i];
+            _jobj_t* obj = json_get_obj(jsn, i);
             if (obj->cap > BUF_SIZE)
             {
                 mem += obj->len * sizeof(jkv_t);
                 reserve += obj->cap * sizeof(jkv_t);
             }
         }
-        mem += jsn->objs.size() * sizeof(_jobj_t);
-        reserve += jsn->objs.capacity() * sizeof(_jobj_t);
-        printf("[OBJECT] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->objs.size());
+        mem += jsn->objs_len * sizeof(_jobj_t);
+        reserve += jsn->objs_cap * sizeof(_jobj_t);
+        printf("[OBJECT] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->objs_len);
 
         total += mem;
         total_reserve += reserve;
@@ -1744,14 +1922,14 @@ json_t* json_load_file( const char* path )
     {
         size_t mem = 0;
         size_t reserve = 0;
-        for ( size_t i = 0; i < jsn->strs.size(); ++i )
+        for ( size_t i = 0; i < jsn->strs_len; ++i )
         {
             jstr_t* str = &jsn->strs[i];
             mem += str->len;
             reserve += str->len;
         }
-        mem += jsn->strs.size() * sizeof(jstr_t);
-        reserve += jsn->strs.capacity() * sizeof(jstr_t);
+        mem += jsn->strs_len * sizeof(jstr_t);
+        reserve += jsn->strs_cap * sizeof(jstr_t);
         printf("[STRING] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
 
         total += mem;
@@ -1761,8 +1939,8 @@ json_t* json_load_file( const char* path )
     {
         size_t mem = 0;
         size_t reserve = 0;
-        mem += jsn->nums.size() * sizeof(jnum_t);
-        reserve += jsn->nums.capacity() * sizeof(jnum_t);
+        mem += jsn->nums_len * sizeof(jnum_t);
+        reserve += jsn->nums_cap * sizeof(jnum_t);
 
         printf("[NUMBERS] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
 
@@ -1771,6 +1949,7 @@ json_t* json_load_file( const char* path )
     }
 
     printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
+    print_mem_usage();
 #endif
 
     return jsn;
