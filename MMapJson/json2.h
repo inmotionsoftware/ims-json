@@ -11,14 +11,17 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include <memory.h>
 #include <stdlib.h>
-#include <math.h>
-#include <vector>
 
+//------------------------------------------------------------------------------
 typedef double jnum_t;
 typedef uint8_t jbool;
 typedef uint32_t jsize_t;
+
+//------------------------------------------------------------------------------
+struct jstr_t;
+struct _jobj_t;
+struct _jarray_t;
 
 //------------------------------------------------------------------------------
 enum jtype
@@ -31,11 +34,6 @@ enum jtype
     JTYPE_TRUE,
     JTYPE_FALSE
 };
-
-struct jstr_t;
-
-int jstr_cmp(jstr_t* str, const char* cstr);
-int jstr_ncmp(jstr_t* str, const char* cstr, size_t len);
 
 //------------------------------------------------------------------------------
 struct jobj_t
@@ -65,18 +63,13 @@ void jarray_add_nil(jarray_t a);
 jarray_t jarray_add_array(jarray_t a);
 jobj_t jarray_add_obj(jarray_t a);
 
-struct _jobj_t;
-struct _jarray_t;
-
+//------------------------------------------------------------------------------
 struct jbuf_t
 {
     size_t cap;
     size_t len;
     char* ptr;
 };
-
-void jbuf_init(jbuf_t*);
-void jbuf_destroy(jbuf_t*);
 
 //------------------------------------------------------------------------------
 struct jmapbucket_t
@@ -96,13 +89,10 @@ struct jmap_t
     jstr_t* strs;
 };
 
-void jmap_init(jmap_t* map);
-size_t jmap_find_str(jmap_t*, const char*);
-jstr_t* jmap_get_str(jmap_t*, size_t);
-
+//------------------------------------------------------------------------------
 struct jlist_t
 {
-    json_t* json;
+    json_t* json; // pointer back to parent
     size_t len;
     size_t cap;
     char data[0];

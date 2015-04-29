@@ -8,6 +8,10 @@
 
 #include "json2.h"
 #include <math.h>
+#include <errno.h>
+#include <memory.h>
+#include <limits.h>
+#include <stddef.h>
 #include <assert.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -15,7 +19,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/resource.h>
-#include <errno.h>
 
 #pragma mark - macros
 
@@ -239,6 +242,181 @@ void jstr_init_str_hash( jstr_t* jstr, const char* cstr, size_t len, uint32_t ha
 void jstr_init_str( jstr_t* jstr, const char* cstr, size_t len )
 {
     jstr_init_str_hash(jstr, cstr, len, strhash(cstr, len));
+}
+
+
+#pragma mark - jmap_t
+
+//------------------------------------------------------------------------------
+void jmap_init(jmap_t* map)
+{
+    map->nbuckets = 0;
+    map->len = 0;
+    map->buckets = NULL;
+    map->cap = 0;
+    map->strs = NULL;
+}
+
+//------------------------------------------------------------------------------
+void jmap_destroy(jmap_t* map)
+{
+    // clean up bucket slots
+    for ( size_t i = 0; i < map->nbuckets; i++ )
+    {
+        jmapbucket_t* bucket = &map->buckets[i];
+        if (bucket->slots)
+        {
+            free(bucket->slots);
+        }
+    }
+
+    // clean up buckets
+    free(map->buckets);
+
+    if (map->strs)
+    {
+        // cleanup strings
+        for ( size_t i = 0; i < map->len; i++ )
+        {
+            jstr_t* str = &map->strs[i];
+            if (str->len > BUF_SIZE)
+            {
+                free(str->chars);
+            }
+        }
+        free(map->strs);
+    }
+}
+
+//------------------------------------------------------------------------------
+void jmap_reserve_str( jmap_t* map, size_t len )
+{
+    // not found, create a new one
+    if (map->len+len >= map->cap)
+    {
+        map->cap = grow(map->len+len, map->cap);
+        map->strs = (jstr_t*)realloc(map->strs, sizeof(jstr_t)*map->cap);
+    }
+}
+
+//------------------------------------------------------------------------------
+size_t _jmap_add_str(jmap_t* map, const char* cstr, size_t len, uint32_t hash)
+{
+    // not found, create a new one
+    jmap_reserve_str(map, 1);
+
+    size_t idx = map->len++;
+    jstr_init_str_hash(&map->strs[idx], cstr, len, hash);
+    return idx;
+}
+
+//------------------------------------------------------------------------------
+void jmap_bucket_reserve( jmapbucket_t* bucket, size_t len )
+{
+    if ( bucket->len+len >= bucket->cap )
+    {
+        bucket->cap = grow(bucket->len+len, bucket->cap);
+        bucket->slots = (size_t*)realloc( bucket->slots, sizeof(size_t) * bucket->cap );
+    }
+}
+
+//------------------------------------------------------------------------------
+void _jmap_add_key(jmap_t* map, uint32_t hash, size_t val)
+{
+    assert(map);
+    assert(map->buckets);
+
+    size_t idx = hash % map->nbuckets;
+    jmapbucket_t* bucket = &map->buckets[idx];
+    jmap_bucket_reserve(bucket, 1);
+    bucket->slots[bucket->len++] = val;
+}
+
+//------------------------------------------------------------------------------
+void jmap_rehash(jmap_t* map)
+{
+    float load = map->len / (float)map->nbuckets;
+    if (map->nbuckets > 0 && load <= 0.8)
+        return;
+
+    size_t target = ceilf(map->nbuckets / 0.3f);
+
+    jmap_t copy = {0};
+    copy.nbuckets = MAX(13, target);
+    copy.len = map->len;
+    copy.buckets = (jmapbucket_t*)calloc(copy.nbuckets, sizeof(jmapbucket_t));
+    copy.strs = map->strs;
+
+    map->strs = NULL;
+
+    for ( size_t i = 0; i < map->nbuckets; i++ )
+    {
+        jmapbucket_t* src = &map->buckets[i];
+        if (!src) continue;
+
+        for ( size_t n = 0; n < src->len; n++ )
+        {
+            jstr_t* str = &copy.strs[src->slots[n]];
+            _jmap_add_key(&copy, str->hash, src->slots[n]);
+        }
+    }
+
+    jmap_destroy(map);
+    *map = copy;
+}
+
+//------------------------------------------------------------------------------
+jstr_t* jmap_get_str(jmap_t* map, size_t idx)
+{
+    assert(map);
+    assert(idx < map->len);
+    return &map->strs[idx];
+}
+
+//------------------------------------------------------------------------------
+size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
+{
+    uint32_t hash = strhash(cstr, slen);
+
+    jmap_rehash(map);
+
+    size_t idx = hash % map->nbuckets;
+    jmapbucket_t* bucket = &map->buckets[idx];
+
+    size_t rt = SIZE_T_MAX;
+
+    for ( size_t i = 0; i < bucket->len; ++i )
+    {
+        size_t idx = bucket->slots[i];
+        jstr_t* str = &map->strs[idx];
+        if (str->hash == hash && str->len == slen)
+        {
+            const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
+            if (strncmp(chars, cstr, slen) == 0)
+            {
+                rt = idx;
+                break;
+            }
+        }
+    }
+
+    if (rt == SIZE_T_MAX)
+    {
+        size_t req = bucket->len+1;
+        if (req >= bucket->cap)
+        {
+            bucket->cap = grow(req, bucket->cap);
+            bucket->slots = (size_t*)realloc(bucket->slots, sizeof(bucket->slots[0]) * bucket->cap );
+        }
+
+        // not found, create a new one
+        rt = _jmap_add_str(map, cstr, slen, hash);
+
+        map->len++;
+        bucket->slots[bucket->len++] = rt;
+    }
+
+    return rt;
 }
 
 #pragma mark - json_t
@@ -765,188 +943,7 @@ static inline void jarray_print(jarray_t _root, size_t depth, FILE* f)
     json_fprintf(f, "]");
 }
 
-#pragma mark - jmap_t
-
-//------------------------------------------------------------------------------
-void jmap_init(jmap_t* map)
-{
-    map->nbuckets = 0;
-    map->len = 0;
-    map->buckets = NULL;
-    map->cap = 0;
-    map->strs = NULL;
-}
-
-//------------------------------------------------------------------------------
-void jmap_destroy(jmap_t* map)
-{
-    // clean up bucket slots
-    for ( size_t i = 0; i < map->nbuckets; i++ )
-    {
-        jmapbucket_t* bucket = &map->buckets[i];
-        if (bucket->slots)
-        {
-            free(bucket->slots);
-        }
-    }
-
-    // clean up buckets
-    free(map->buckets);
-
-    if (map->strs)
-    {
-        // cleanup strings
-        for ( size_t i = 0; i < map->len; i++ )
-        {
-            jstr_t* str = &map->strs[i];
-            if (str->len > BUF_SIZE)
-            {
-                free(str->chars);
-            }
-        }
-        free(map->strs);
-    }
-}
-
-//------------------------------------------------------------------------------
-void jmap_reserve_str( jmap_t* map, size_t len )
-{
-    // not found, create a new one
-    if (map->len+len >= map->cap)
-    {
-        map->cap = grow(map->len+len, map->cap);
-        map->strs = (jstr_t*)realloc(map->strs, sizeof(jstr_t)*map->cap);
-    }
-}
-
-//------------------------------------------------------------------------------
-size_t _jmap_add_str(jmap_t* map, const char* cstr, size_t len, uint32_t hash)
-{
-    // not found, create a new one
-    jmap_reserve_str(map, 1);
-
-    size_t idx = map->len++;
-    jstr_init_str_hash(&map->strs[idx], cstr, len, hash);
-    return idx;
-}
-
-//------------------------------------------------------------------------------
-void jmap_bucket_reserve( jmapbucket_t* bucket, size_t len )
-{
-    if ( bucket->len+len >= bucket->cap )
-    {
-        bucket->cap = grow(bucket->len+len, bucket->cap);
-        bucket->slots = (size_t*)realloc( bucket->slots, sizeof(size_t) * bucket->cap );
-    }
-}
-
-//------------------------------------------------------------------------------
-void _jmap_add_key(jmap_t* map, uint32_t hash, size_t val)
-{
-    assert(map);
-    assert(map->buckets);
-
-    size_t idx = hash % map->nbuckets;
-    jmapbucket_t* bucket = &map->buckets[idx];
-    jmap_bucket_reserve(bucket, 1);
-    bucket->slots[bucket->len++] = val;
-}
-
-//------------------------------------------------------------------------------
-void jmap_rehash(jmap_t* map)
-{
-    float load = map->len / (float)map->nbuckets;
-    if (map->nbuckets > 0 && load <= 0.8)
-        return;
-
-    size_t target = ceilf(map->nbuckets / 0.3f);
-
-    jmap_t copy = {0};
-    copy.nbuckets = MAX(13, target);
-    copy.len = map->len;
-    copy.buckets = (jmapbucket_t*)calloc(copy.nbuckets, sizeof(jmapbucket_t));
-    copy.strs = map->strs;
-
-    map->strs = NULL;
-
-    for ( size_t i = 0; i < map->nbuckets; i++ )
-    {
-        jmapbucket_t* src = &map->buckets[i];
-        if (!src) continue;
-
-        for ( size_t n = 0; n < src->len; n++ )
-        {
-            jstr_t* str = &copy.strs[src->slots[n]];
-            _jmap_add_key(&copy, str->hash, src->slots[n]);
-        }
-    }
-
-    jmap_destroy(map);
-    *map = copy;
-}
-
-//------------------------------------------------------------------------------
-jstr_t* jmap_get_str(jmap_t* map, size_t idx)
-{
-    assert(map);
-    assert(idx < map->len);
-    return &map->strs[idx];
-}
-
-//------------------------------------------------------------------------------
-size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
-{
-    uint32_t hash = strhash(cstr, slen);
-
-    jmap_rehash(map);
-
-    size_t idx = hash % map->nbuckets;
-    jmapbucket_t* bucket = &map->buckets[idx];
-
-    size_t rt = SIZE_T_MAX;
-
-    for ( size_t i = 0; i < bucket->len; ++i )
-    {
-        size_t idx = bucket->slots[i];
-        jstr_t* str = &map->strs[idx];
-        if (str->hash == hash && str->len == slen)
-        {
-            const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
-            if (strncmp(chars, cstr, slen) == 0)
-            {
-                rt = idx;
-                break;
-            }
-        }
-    }
-
-    if (rt == SIZE_T_MAX)
-    {
-        size_t req = bucket->len+1;
-        if (req >= bucket->cap)
-        {
-            bucket->cap = grow(req, bucket->cap);
-            bucket->slots = (size_t*)realloc(bucket->slots, sizeof(bucket->slots[0]) * bucket->cap );
-        }
-
-        // not found, create a new one
-        rt = _jmap_add_str(map, cstr, slen, hash);
-
-        map->len++;
-        bucket->slots[bucket->len++] = rt;
-    }
-
-    return rt;
-}
-
 #pragma mark - jbuf_t
-
-void jbuf_destroy(jbuf_t* buf)
-{
-    assert(buf);
-    free(buf->ptr);
-    jbuf_init(buf);
-}
 
 //------------------------------------------------------------------------------
 void jbuf_init(jbuf_t* buf)
@@ -955,6 +952,14 @@ void jbuf_init(jbuf_t* buf)
     buf->cap = 0;
     buf->len = 0;
     buf->ptr = NULL;
+}
+
+//------------------------------------------------------------------------------
+void jbuf_destroy(jbuf_t* buf)
+{
+    assert(buf);
+    free(buf->ptr);
+    jbuf_init(buf);
 }
 
 //------------------------------------------------------------------------------
@@ -1418,14 +1423,14 @@ inline bool parse_false( T& beg, const T& end )
 
 //------------------------------------------------------------------------------
 template < typename T >
-inline std::nullptr_t parse_null( T& beg, const T& end )
+inline void* parse_null( T& beg, const T& end )
 {
     json_assert(*++beg == 'u' && beg != end &&
                 *++beg == 'l' && beg != end &&
                 *++beg == 'l' && beg != end,
         "expected literal 'true'");
     ++beg;
-    return nullptr;
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -1740,7 +1745,7 @@ public:
 
         size_t psize = getpagesize();
 
-        size_t len = std::min(m_len, psize);
+        size_t len = MIN(m_len, psize);
         m_beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, m_fd, m_off);
         m_cur = m_beg;
         m_end = m_beg + len;
@@ -1818,7 +1823,7 @@ public:
             }
             else
             {
-                len = std::min(len, m_len-m_off);
+                len = MIN(len, m_len-m_off);
                 assert (len > 0);
 
                 m_beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, m_fd, m_off);
