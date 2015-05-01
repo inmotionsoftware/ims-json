@@ -82,10 +82,12 @@ struct jmapbucket_t
 //------------------------------------------------------------------------------
 struct jmap_t
 {
-    size_t len;
-    size_t cap;
-    size_t nbuckets;
+    size_t blen;
+    size_t bcap;
     jmapbucket_t* buckets;
+
+    size_t slen;
+    size_t scap;
     jstr_t* strs;
 };
 
@@ -115,12 +117,10 @@ struct json_t
     jbuf_t valbuf; // buffer for temporarily storing the value string
 };
 
-json_t* json_load_file( const char* path );
-
 json_t* json_new();
+json_t* json_load_file( const char* path );
 void json_print(json_t* j, FILE*);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
-
 
 #endif /* defined(__MMapJson__json2__) */
