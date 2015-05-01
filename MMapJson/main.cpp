@@ -86,11 +86,11 @@ int main(int argc, const char * argv[])
 //    jsn = NULL;
 
     printf("done\n");
-
-    while (true)
-    {
-        sleep(1);
-    }
+//
+//    while (true)
+//    {
+//        sleep(1);
+//    }
 
 ////    json_t* jsn = json_new();
 ////    jobj_t root = json_root(jsn);

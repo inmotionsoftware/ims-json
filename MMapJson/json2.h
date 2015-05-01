@@ -26,14 +26,15 @@ struct _jarray_t;
 //------------------------------------------------------------------------------
 enum jtype
 {
-    JTYPE_NIL = 0,
-    JTYPE_STR,
-    JTYPE_NUM,
-    JTYPE_ARRAY,
-    JTYPE_OBJ,
-    JTYPE_TRUE,
-    JTYPE_FALSE
+    JTYPE_NIL   = 0,
+    JTYPE_STR   = 1,
+    JTYPE_NUM   = 2,
+    JTYPE_ARRAY = 3,
+    JTYPE_OBJ   = 4,
+    JTYPE_TRUE  = 5,
+    JTYPE_FALSE = 6
 };
+#define JTYPE_MASK 0x7
 
 //------------------------------------------------------------------------------
 struct jobj_t
