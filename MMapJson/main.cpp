@@ -7,8 +7,11 @@
 //
 
 #include <time.h>
-#include "json.h"
-#include "json2.h"
+
+extern "C"
+{
+    #include "json2.h"
+}
 
 #include <math.h>
 #include <assert.h>

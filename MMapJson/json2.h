@@ -9,6 +9,10 @@
 #ifndef __MMapJson__json2__
 #define __MMapJson__json2__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -42,12 +46,12 @@ struct jobj_t
     struct json_t* json;
     size_t idx;
 };
+typedef struct jobj_t jobj_t;
 
 void jobj_add_num( jobj_t obj, const char* key, jnum_t num );
 void jobj_add_str( jobj_t obj, const char* key, const char* str );
 void jobj_add_bool( jobj_t obj, const char* key, jbool b );
 void jobj_add_nil( jobj_t obj, const char* key );
-struct jarray_t jobj_add_array( jobj_t obj, const char* key );
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
 
 //------------------------------------------------------------------------------
@@ -56,13 +60,16 @@ struct jarray_t
     struct json_t* json;
     size_t idx;
 };
+typedef struct jarray_t jarray_t;
 
-void jarray_add_num( jarray_t a, jnum_t num );
-void jarray_add_str( jarray_t a, const char* str );
-void jarray_add_bool( jarray_t a, jbool b );
-void jarray_add_nil(jarray_t a);
-jarray_t jarray_add_array(jarray_t a);
-jobj_t jarray_add_obj(jarray_t a);
+struct jarray_t jobj_add_array( jobj_t obj, const char* key );
+
+void jarray_add_num( struct jarray_t a, jnum_t num );
+void jarray_add_str( struct jarray_t a, const char* str );
+void jarray_add_bool( struct jarray_t a, jbool b );
+void jarray_add_nil(struct jarray_t a);
+struct jarray_t jarray_add_array(struct jarray_t a);
+struct jobj_t jarray_add_obj(struct jarray_t a);
 
 //------------------------------------------------------------------------------
 struct jbuf_t
@@ -71,6 +78,7 @@ struct jbuf_t
     size_t len;
     char* ptr;
 };
+typedef struct jbuf_t jbuf_t;
 
 //------------------------------------------------------------------------------
 struct jmapbucket_t
@@ -79,27 +87,30 @@ struct jmapbucket_t
     size_t cap;
     size_t* slots;
 };
+typedef struct jmapbucket_t jmapbucket_t;
 
 //------------------------------------------------------------------------------
 struct jmap_t
 {
     size_t blen;
     size_t bcap;
-    jmapbucket_t* buckets;
+    struct jmapbucket_t* buckets;
 
     size_t slen;
     size_t scap;
-    jstr_t* strs;
+    struct jstr_t* strs;
 };
+typedef struct jmap_t jmap_t;
 
 //------------------------------------------------------------------------------
 struct jlist_t
 {
-    json_t* json; // pointer back to parent
+    struct json_t* json; // pointer back to parent
     size_t len;
     size_t cap;
     char data[0];
 };
+typedef struct jlist_t jlist_t;
 
 //------------------------------------------------------------------------------
 struct json_t
@@ -112,16 +123,21 @@ struct json_t
     jlist_t* objs;
     jlist_t* arrays;
 
-    struct jmap_t strmap;
+    jmap_t strmap;
 
     jbuf_t keybuf; // buffer for temporarily storing the key string
     jbuf_t valbuf; // buffer for temporarily storing the value string
 };
+typedef struct json_t json_t;
 
 json_t* json_new();
 json_t* json_load_file( const char* path );
 void json_print(json_t* j, FILE*);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* defined(__MMapJson__json2__) */

@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		E756B0411AE14C64004ECF44 /* json.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E756B03F1AE14C64004ECF44 /* json.cpp */; };
-		E756B0441AE55228004ECF44 /* json2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E756B0421AE55228004ECF44 /* json2.cpp */; };
+		E756B0441AE55228004ECF44 /* json2.c in Sources */ = {isa = PBXBuildFile; fileRef = E756B0421AE55228004ECF44 /* json2.c */; };
 		E77A13DF1AD5D443001068F1 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E77A13DE1AD5D443001068F1 /* main.cpp */; };
 /* End PBXBuildFile section */
 
@@ -28,7 +28,7 @@
 		E71609FF1ADB0B5D0014729D /* citylots.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = citylots.json; sourceTree = "<group>"; };
 		E756B03F1AE14C64004ECF44 /* json.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = json.cpp; sourceTree = "<group>"; };
 		E756B0401AE14C64004ECF44 /* json.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json.h; sourceTree = "<group>"; };
-		E756B0421AE55228004ECF44 /* json2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = json2.cpp; sourceTree = "<group>"; };
+		E756B0421AE55228004ECF44 /* json2.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = json2.c; sourceTree = "<group>"; };
 		E756B0431AE55228004ECF44 /* json2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json2.h; sourceTree = "<group>"; };
 		E77066571AE83EBF00707E5C /* small.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = small.json; sourceTree = "<group>"; };
 		E77A13DB1AD5D443001068F1 /* MMapJson */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MMapJson; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -75,7 +75,7 @@
 				E756B0401AE14C64004ECF44 /* json.h */,
 				E756B03F1AE14C64004ECF44 /* json.cpp */,
 				E756B0431AE55228004ECF44 /* json2.h */,
-				E756B0421AE55228004ECF44 /* json2.cpp */,
+				E756B0421AE55228004ECF44 /* json2.c */,
 			);
 			path = MMapJson;
 			sourceTree = "<group>";
@@ -136,7 +136,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E756B0441AE55228004ECF44 /* json2.cpp in Sources */,
+				E756B0441AE55228004ECF44 /* json2.c in Sources */,
 				E77A13DF1AD5D443001068F1 /* main.cpp in Sources */,
 				E756B0411AE14C64004ECF44 /* json.cpp in Sources */,
 			);

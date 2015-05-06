@@ -43,6 +43,8 @@
 
 #pragma mark - constants
 
+#define JINLINE static inline
+
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
 #define MAX_KEY_IDX UINT32_MAX
@@ -53,12 +55,15 @@
 // pack short keys directly into the jkv_t struct if possible
 #define PACK_KEYS 1
 
+static const jbool jtrue = 1;
+static const jbool jfalse = 0;
+
 #pragma mark - structs
 
 typedef uint32_t jhash_t;
 
 //------------------------------------------------------------------------------
-static inline void* jcalloc( size_t s, size_t n)
+JINLINE void* jcalloc( size_t s, size_t n)
 {
     assert(s>0 && n>0);
     void* ptr = calloc(s, n);
@@ -67,13 +72,13 @@ static inline void* jcalloc( size_t s, size_t n)
 }
 
 //------------------------------------------------------------------------------
-static inline void jfree( void* ptr )
+JINLINE void jfree( void* ptr )
 {
     free(ptr);
 }
 
 //------------------------------------------------------------------------------
-static inline void* jmalloc( size_t s )
+JINLINE void* jmalloc( size_t s )
 {
     assert(s > 0);
     void* ptr = malloc(s);
@@ -82,7 +87,7 @@ static inline void* jmalloc( size_t s )
 }
 
 //------------------------------------------------------------------------------
-static inline void* jrealloc( void* ptr, size_t s )
+JINLINE void* jrealloc( void* ptr, size_t s )
 {
     void* rt = realloc(ptr, s);
     assert(rt);
@@ -152,14 +157,13 @@ typedef struct _jarray_t _jarray_t;
 
 #pragma mark - function prototypes
 //------------------------------------------------------------------------------
-static inline void _jarray_print(_jarray_t* root, size_t depth, FILE* f);
+JINLINE void _jarray_print(_jarray_t* root, size_t depth, FILE* f);
 size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen);
-template < typename T > inline void parse_obj( jobj_t obj, T& beg, const T& end );
 
 #pragma mark - util
 
 //------------------------------------------------------------------------------
-static inline void print_tabs( size_t cnt, FILE* f)
+JINLINE void print_tabs( size_t cnt, FILE* f)
 {
     while (cnt--)
     {
@@ -168,13 +172,13 @@ static inline void print_tabs( size_t cnt, FILE* f)
 }
 
 //------------------------------------------------------------------------------
-static inline jnum_t btomb(size_t bytes)
+JINLINE jnum_t btomb(size_t bytes)
 {
     return (bytes / (jnum_t)(1024*1024));
 }
 
 //------------------------------------------------------------------------------
-static inline size_t grow( size_t min, size_t cur )
+JINLINE size_t grow( size_t min, size_t cur )
 {
     static const jnum_t GROWTH_FACTOR = 1.1;
     assert(min >= cur);
@@ -189,7 +193,7 @@ static inline size_t grow( size_t min, size_t cur )
 #pragma mark - jstr_t
 
 //------------------------------------------------------------------------------
-static inline jhash_t murmur3_32(const char *key, size_t len, jhash_t seed)
+JINLINE jhash_t murmur3_32(const char *key, size_t len, jhash_t seed)
 {
 	static const uint32_t c1 = 0xcc9e2d51;
 	static const uint32_t c2 = 0x1b873593;
@@ -243,7 +247,7 @@ static inline jhash_t murmur3_32(const char *key, size_t len, jhash_t seed)
 }
 
 //------------------------------------------------------------------------------
-static inline jhash_t jstr_hash( const char* key, size_t len )
+JINLINE jhash_t jstr_hash( const char* key, size_t len )
 {
     static const jhash_t MURMER32_SEED = 0;
     static const size_t MAX_CHARS = 32;
@@ -400,6 +404,8 @@ void jmap_rehash(jmap_t* map, size_t hint)
             return;
     }
 
+    // TODO: reuse allocations
+
     size_t target = ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
 
     jmap_t copy = {0};
@@ -523,6 +529,7 @@ static size_t json_add_obj( json_t* jsn )
 {
     assert(jsn);
     json_objs_reserve(jsn, 1);
+    assert(jsn->objs);
 
     size_t idx = jsn->objs->len++;
     _jobj_t* obj = json_get_obj(jsn, idx);
@@ -570,6 +577,7 @@ static size_t json_add_array( json_t* jsn )
 {
     assert(jsn);
     json_arrays_reserve(jsn, 1);
+    assert(jsn->arrays);
 
     size_t idx = jsn->arrays->len++;
     _jarray_t* array = json_get_array(jsn, idx);
@@ -619,7 +627,7 @@ size_t json_add_str( json_t* jsn, const char* str )
 #pragma mark - jobj_t
 
 //------------------------------------------------------------------------------
-static inline _jobj_t* jobj_get_obj(jobj_t obj)
+JINLINE _jobj_t* jobj_get_obj(jobj_t obj)
 {
     assert(obj.json);
     assert(obj.idx < obj.json->objs->len);
@@ -634,6 +642,7 @@ static json_t* jobj_get_json( _jobj_t* obj )
     ssize_t off1 = offsetof(jlist_t, data);
     ssize_t off2 = offsetof(jlist_t, json);
     jlist_t* b = (jlist_t*)( (char*)ptr + (off2 - off1));
+    assert(b->json);
     return b->json;
 }
 
@@ -698,12 +707,10 @@ jval_t* jobj_get_val(_jobj_t* obj, size_t idx)
 }
 
 //------------------------------------------------------------------------------
-void jobj_add_kv(_jobj_t* obj, const char* key, uint32_t type, size_t idx)
+void jobj_add_kval(_jobj_t* obj, const char* key, jval_t val )
 {
     assert(obj);
     assert(key);
-    assert(idx < MAX_VAL_IDX /* 2^28 */);
-    assert((type & ~JTYPE_MASK) == 0);
 
     jobj_reserve(obj, 1);
     jkv_t* kv = jobj_get_kv(obj, obj->len++);
@@ -715,7 +722,7 @@ void jobj_add_kv(_jobj_t* obj, const char* key, uint32_t type, size_t idx)
         kv->_key = 0;
         memcpy(kv->kstr, key, klen);
         kv->kstr[klen] = '\0';
-        type |= ~JTYPE_MASK;
+        val.type |= ~JTYPE_MASK;
     }
     else
 #endif
@@ -724,8 +731,15 @@ void jobj_add_kv(_jobj_t* obj, const char* key, uint32_t type, size_t idx)
         assert (kidx < MAX_KEY_IDX);
         kv->_key = (uint32_t)kidx;
     }
-    kv->val.type = type;
-    kv->val.idx = (uint32_t)idx;
+    kv->val = val;
+}
+
+//------------------------------------------------------------------------------
+void jobj_add_kv(_jobj_t* obj, const char* key, uint32_t type, size_t idx)
+{
+    assert(idx < MAX_VAL_IDX /* 2^28 */);
+    assert((type & ~JTYPE_MASK) == 0);
+    jobj_add_kval(obj, key, (jval_t){type, (uint32_t)idx});
 }
 
 //------------------------------------------------------------------------------
@@ -787,7 +801,7 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key )
 }
 
 //------------------------------------------------------------------------------
-static inline void* jobj_get_next(_jobj_t* obj, const char** key, size_t idx, int* type)
+JINLINE void* jobj_get_next(_jobj_t* obj, const char** key, size_t idx, int* type)
 {
     assert(obj);
     assert(key);
@@ -838,7 +852,7 @@ static inline void* jobj_get_next(_jobj_t* obj, const char** key, size_t idx, in
 }
 
 //------------------------------------------------------------------------------
-static inline void _jobj_print(_jobj_t* root, size_t depth, FILE* f)
+JINLINE void _jobj_print(_jobj_t* root, size_t depth, FILE* f)
 {
     assert(root);
     assert(f);
@@ -897,7 +911,7 @@ static inline void _jobj_print(_jobj_t* root, size_t depth, FILE* f)
 }
 
 //------------------------------------------------------------------------------
-static inline void jobj_print(jobj_t _root, size_t depth, FILE* f)
+JINLINE void jobj_print(jobj_t _root, size_t depth, FILE* f)
 {
     _jobj_print(jobj_get_obj(_root), depth, f);
 }
@@ -905,7 +919,7 @@ static inline void jobj_print(jobj_t _root, size_t depth, FILE* f)
 #pragma mark - jarray_t
 
 //------------------------------------------------------------------------------
-static inline _jarray_t* jarray_get_array(jarray_t array)
+JINLINE _jarray_t* jarray_get_array(jarray_t array)
 {
     assert(array.json);
     return json_get_array(array.json, array.idx);
@@ -984,7 +998,11 @@ jval_t* jarray_add_val( _jarray_t* a)
     assert(a);
     jarray_reserve(a, 1);
     jval_t* val = jarray_get_val(a, a->len++);
-    *val = {0}; // clear out
+    *val = (jval_t)
+    {
+        .type = 0,
+        .idx = 0
+    };
     return val;
 }
 
@@ -1070,7 +1088,7 @@ jobj_t jarray_add_obj( jarray_t _a )
 }
 
 //------------------------------------------------------------------------------
-static inline void _jarray_print(_jarray_t* root, size_t depth, FILE* f)
+JINLINE void _jarray_print(_jarray_t* root, size_t depth, FILE* f)
 {
     assert(root);
     assert(f);
@@ -1155,7 +1173,7 @@ void jbuf_destroy(jbuf_t* buf)
 }
 
 //------------------------------------------------------------------------------
-static inline void jbuf_clear( jbuf_t* buf )
+JINLINE void jbuf_clear( jbuf_t* buf )
 {
     assert(buf);
     if (buf->ptr && buf->cap > 0) buf->ptr[0] = '\0';
@@ -1163,7 +1181,7 @@ static inline void jbuf_clear( jbuf_t* buf )
 }
 
 //------------------------------------------------------------------------------
-static inline void jbuf_reserve( jbuf_t* buf, size_t cap )
+JINLINE void jbuf_reserve( jbuf_t* buf, size_t cap )
 {
     assert(buf);
     if (buf->len+cap < buf->cap)
@@ -1175,7 +1193,7 @@ static inline void jbuf_reserve( jbuf_t* buf, size_t cap )
 }
 
 //------------------------------------------------------------------------------
-static inline void jbuf_add( jbuf_t* buf, char ch )
+JINLINE void jbuf_add( jbuf_t* buf, char ch )
 {
     assert(buf);
     jbuf_reserve(buf, 1);
@@ -1211,18 +1229,17 @@ json_t* json_new()
 //------------------------------------------------------------------------------
 void json_parse_buf( json_t* jsn, void* ptr, size_t len )
 {
-    assert(jsn);
-    assert(ptr);
-
-    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
-    json_nums_reserve(jsn, ceilf(len*0.01));
-    json_arrays_reserve(jsn, ceilf(len*0.01));
-    json_objs_reserve(jsn, ceilf(len*0.01));
-
-    const char* cptr = (const char*)ptr;
-    parse_obj(json_root(jsn), cptr, cptr+len);
-    jbuf_destroy(&jsn->keybuf);
-    jbuf_destroy(&jsn->valbuf);
+//    assert(jsn);
+//    assert(ptr);
+//
+//    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
+//    json_nums_reserve(jsn, ceilf(len*0.01));
+//    json_arrays_reserve(jsn, ceilf(len*0.01));
+//    json_objs_reserve(jsn, ceilf(len*0.01));
+//
+//    parse_obj(json_root(jsn), &ptr);
+//    jbuf_destroy(&jsn->keybuf);
+//    jbuf_destroy(&jsn->valbuf);
 }
 
 
@@ -1321,13 +1338,49 @@ jobj_t json_root(json_t* jsn)
 
 #pragma mark - parse
 
-//------------------------------------------------------------------------------
-template < typename T >
-inline void eat_whitespace( T& beg, const T& end )
+struct jfile
 {
-    for (; beg != end; ++beg )
+    FILE* file;
+    char buf[4096];
+    size_t pos;
+    size_t len;
+};
+
+//------------------------------------------------------------------------------
+int jgetc( void* ctx )
+{
+    struct jfile* f = (struct jfile*)ctx;
+    if (f->len == 0)
     {
-        switch(*beg)
+        f->len = fread(f->buf, 1, 4096, f->file);
+        f->pos = 0;
+    }
+    else if (f->pos >= f->len)
+    {
+        f->buf[0] = f->buf[f->len-1];
+        f->len = fread(f->buf+1, 1, 4095, f->file);
+        assert(f->len > 0);
+        f->len++;
+        f->pos = 1;
+    }
+
+    return f->buf[f->pos++];
+}
+
+//------------------------------------------------------------------------------
+void junget( int ch, void* ctx )
+{
+    struct jfile* f = (struct jfile*)ctx;
+    assert(f->pos > 0);
+    f->pos--;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void parse_whitespace( void* ctx )
+{
+    for ( int ch = jgetc(ctx); ch >= 0; ch = jgetc(ctx) )
+    {
+        switch(ch)
         {
             case ' ':
             case '\t':
@@ -1338,124 +1391,16 @@ inline void eat_whitespace( T& beg, const T& end )
                 break;
 
             default:
+                junget(ch, ctx);
                 return;
         }
     }
 }
 
 //------------------------------------------------------------------------------
-template < typename T >
-inline jnum_t parse_sign( T& beg, const T& end )
+JINLINE unsigned char char_to_hex(int ch)
 {
-    json_assert(beg != end, "unexpected end of file");
-    switch (*beg)
-    {
-        case '-':
-            ++beg;
-            return -1;
-
-        case '+':
-            ++beg;
-            return 1;
-
-        default:
-            return 1;
-    }
-}
-
-//------------------------------------------------------------------------------
-static jnum_t __ignore = 0;
-template < typename T >
-inline jnum_t parse_digits( T& beg, const T& end, jnum_t& places = __ignore)
-{
-    json_assert(beg != end, "unexpected end of file");
-
-    jnum_t num = 0;
-    for (size_t cnt = 0; beg != end; ++beg, ++cnt)
-    {
-        switch (*beg)
-        {
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
-            {
-                num = num*10 + (*beg - '0');
-                break;
-            }
-
-            default:
-            {
-                places = pow(10, cnt);
-                return num;
-            }
-        }
-    }
-
-    json_assert(false, "unexpected end of file");
-    return num;
-}
-
-
-//------------------------------------------------------------------------------
-template < typename T >
-inline jnum_t parse_number( T& beg, const T& end )
-{
-    json_assert(beg != end, "unexpected end of file");
-
-    // +/-
-    jnum_t sign = parse_sign(beg, end);
-
-    // whole number
-    jnum_t num = parse_digits(beg, end);
-
-    // fraction
-    switch (*beg)
-    {
-        case '.':
-        {
-            jnum_t places = 1;
-            jnum_t fract = parse_digits(++beg, end, places);
-            num += fract / places;
-            break;
-        }
-
-        default:
-            break;
-    }
-
-    // scientific notation
-    switch (*beg)
-    {
-        case 'e':
-        case 'E':
-        {
-            jnum_t esign = parse_sign(++beg, end);
-            jnum_t digits = parse_digits(beg, end);
-            num *= pow(10, esign*digits);
-            break;
-        }
-
-        default:
-            break;
-    }
-
-    // apply sign
-    return sign * num;
-}
-
-//------------------------------------------------------------------------------
-template < typename T >
-inline unsigned char char_to_hex(T& beg, const T& end)
-{
-    json_assert( beg != end, "unexpected end of stream while parsing unicode escape");
-    switch (*beg)
+    switch (ch)
     {
         case '0': return 0x0;
         case '1': return 0x1;
@@ -1479,13 +1424,13 @@ inline unsigned char char_to_hex(T& beg, const T& end)
         case 'e': return 0xE;
         case 'F':
         case 'f': return 0xF;
-        default: json_assert(false, "invalid unicode hex digit: '%c'", *beg);
+        default: json_assert(jfalse, "invalid unicode hex digit: '%c'", ch);
     }
     return 0;
 }
 
 //------------------------------------------------------------------------------
-static inline void utf8_encode(int32_t codepoint, jbuf_t* str )
+JINLINE void utf8_encode(int32_t codepoint, jbuf_t* str )
 {
     json_assert(codepoint > 0, "invalid unicode");
     if(codepoint < 0x80)
@@ -1512,37 +1457,154 @@ static inline void utf8_encode(int32_t codepoint, jbuf_t* str )
     }
     else
     {
-        json_assert(false, "invalid unicode");
+        json_assert(jfalse, "invalid unicode");
     }
 }
 
 //------------------------------------------------------------------------------
-template < typename T >
-inline unsigned int read_unicode_hex(T& beg, const T& end)
+JINLINE void parse_literal(json_t* jsn, void* f, const char* str)
 {
-    return  char_to_hex(beg, end) << 12 |
-            char_to_hex(beg, end) << 8 |
-            char_to_hex(beg, end) << 4 |
-            char_to_hex(beg, end);
+    for ( const char* s = ++str; *s; s++ )
+    {
+        int ch = jgetc(f);
+        json_assert(ch == *s, "expected string literal: '%s'", str);
+    }
+}
+
+
+//------------------------------------------------------------------------------
+JINLINE jnum_t parse_sign( void* f )
+{
+    int ch = jgetc(f);
+    switch (ch)
+    {
+        case '-':
+            return -1;
+
+        case '+':
+            return 1;
+
+        default:
+            junget(ch, f);
+            return 1;
+    }
 }
 
 //------------------------------------------------------------------------------
-template < typename T >
-inline void parse_unicode( jbuf_t* str, T& beg, const T& end )
+JINLINE jnum_t parse_digitsp( void* ctx, size_t* places)
+{
+    jnum_t num = 0;
+    for ( int ch = jgetc(ctx), cnt = 0; ch >= 0; ch = jgetc(ctx), ++cnt )
+    {
+        switch (ch)
+        {
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8':
+            case '9':
+            {
+                num = num*10 + (ch - '0');
+                break;
+            }
+
+            default:
+            {
+                junget(ch, ctx);
+                *places = pow(10, cnt);
+                return num;
+            }
+        }
+    }
+
+    json_assert(jfalse, "unexpected end of file");
+    return num;
+}
+
+//------------------------------------------------------------------------------
+JINLINE jnum_t parse_digits( void* ctx )
+{
+    size_t places = 0;
+    return parse_digitsp(ctx, &places);
+}
+
+//------------------------------------------------------------------------------
+JINLINE jnum_t parse_num( void* ctx )
+{
+    // +/-
+    jnum_t sign = parse_sign(ctx);
+
+    // whole number
+    jnum_t num = parse_digits(ctx);
+
+    int ch = jgetc(ctx);
+
+    // fraction
+    switch (ch)
+    {
+        case '.':
+        {
+            size_t places = 1;
+            jnum_t fract = parse_digitsp(ctx, &places);
+            num += fract / places;
+            ch = jgetc(ctx);
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    // scientific notation
+    switch (ch)
+    {
+        case 'e':
+        case 'E':
+        {
+            jnum_t esign = parse_sign(ctx);
+            jnum_t digits = parse_digits(ctx);
+            num *= pow(10, esign*digits);
+            break;
+        }
+
+        default:
+            junget(ch, ctx);
+            break;
+    }
+
+    // apply sign
+    return sign * num;
+}
+
+//------------------------------------------------------------------------------
+JINLINE unsigned int parse_unicode_hex(void* f)
+{
+    return char_to_hex(jgetc(f)) << 12 |
+           char_to_hex(jgetc(f)) << 8 |
+           char_to_hex(jgetc(f)) << 4 |
+           char_to_hex(jgetc(f));
+}
+
+//------------------------------------------------------------------------------
+JINLINE void parse_unicode2( jbuf_t* str, void* f )
 {
     // U+XXXX
-    unsigned int val = read_unicode_hex(beg, end);
+    unsigned int val = parse_unicode_hex(f);
 //    json_error(val > 0, is, "\\u0000 is not allowed");
 
     // surrogate pair, \uXXXX\uXXXXX
     if (0xD800 <= val && val <= 0xDBFF)
     {
-        json_assert(*beg == '\\', "invalid unicode"); ++beg;
-        json_assert(beg != end, "unexpected end of stream");
-        json_assert(*beg == 'u', "invalid unicode"); ++beg;
+        json_assert(jgetc(f) == '\\', "invalid unicode");
+        json_assert(jgetc(f) == 'u', "invalid unicode");
 
         // read the surrogate pair from the stream
-        unsigned int val2 = read_unicode_hex(beg, end);
+        unsigned int val2 = parse_unicode_hex(f);
 
         // validate the value
         json_assert(val2 < 0xDC00 || val2 > 0xDFFF, "invalid unicode");
@@ -1555,21 +1617,16 @@ inline void parse_unicode( jbuf_t* str, T& beg, const T& end )
     utf8_encode(val, str);
 }
 
-
 //------------------------------------------------------------------------------
-template < typename T >
-inline void parse_string( T& beg, const T& end, jbuf_t* str )
+void parse_str(jbuf_t* str, void* f)
 {
-    json_assert(beg != end, "unexpected end of file");
-    json_assert(*beg == '"', "not a valid string: '%c'", *beg);
+    int prev = jgetc(f);
+    json_assert(prev == '"', "valid strings must start with a '\"' character");
 
     jbuf_clear(str);
 
-    char ch;
-    char prev = *beg;
-    for (++beg; beg != end; ++beg )
+    for (int ch = jgetc(f); ch >= 0; ch = jgetc(f) )
     {
-        ch = *beg;
         switch (prev)
         {
             case '\\':
@@ -1595,7 +1652,7 @@ inline void parse_string( T& beg, const T& end, jbuf_t* str )
                         jbuf_add(str, '\t');
                         break;
                     case 'u':
-                        parse_unicode(str, beg, end);
+                        parse_unicode2(str, f);
                         break;
                     case '"':
                         jbuf_add(str, '\"');
@@ -1606,7 +1663,7 @@ inline void parse_string( T& beg, const T& end, jbuf_t* str )
                         break;
 
                     default:
-                        json_assert(false, "invalid escape sequence '\\%c'", ch);
+                        json_assert(jfalse, "invalid escape sequence '\\%c'", ch);
                         break;
                 }
                 break;
@@ -1614,13 +1671,12 @@ inline void parse_string( T& beg, const T& end, jbuf_t* str )
 
             default:
             {
-                switch (*beg)
+                switch (ch)
                 {
                     case '\\':
                         break;
 
                     case '"':
-                        ++beg;
                         jbuf_add(str, '\0');
                         return;
 
@@ -1634,476 +1690,143 @@ inline void parse_string( T& beg, const T& end, jbuf_t* str )
         prev = ch;
     }
 
-    json_assert(false, "string terminated unexpectedly");
-    jbuf_add(str, '\0');
+    json_assert(jfalse, "string terminated unexpectedly");
 }
 
+jval_t parse_val( json_t* jsn, void* f );
 
 //------------------------------------------------------------------------------
-template < typename T >
-inline bool parse_true( T& beg, const T& end )
+void parse_array(jarray_t array, void* f)
 {
-    json_assert(*++beg == 'r' && beg != end &&
-                *++beg == 'u' && beg != end &&
-                *++beg == 'e' && beg != end,
-        "expected literal 'true'");
-    ++beg;
-    return true;
-}
+    json_t* jsn = array.json;
 
-//------------------------------------------------------------------------------
-template < typename T >
-inline bool parse_false( T& beg, const T& end )
-{
-    json_assert(*++beg == 'a' && beg != end &&
-                *++beg == 'l' && beg != end &&
-                *++beg == 's' && beg != end &&
-                *++beg == 'e' && beg != end,
-        "expected literal 'true'");
-    ++beg;
-    return false;
-}
-
-//------------------------------------------------------------------------------
-template < typename T >
-inline void* parse_null( T& beg, const T& end )
-{
-    json_assert(*++beg == 'u' && beg != end &&
-                *++beg == 'l' && beg != end &&
-                *++beg == 'l' && beg != end,
-        "expected literal 'true'");
-    ++beg;
-    return NULL;
-}
-
-//------------------------------------------------------------------------------
-template < typename T >
-inline void parse_array( jarray_t a, T& beg, const T& end )
-{
-    json_assert(beg != end, "unexpected end of file");
-    while (++beg != end)
+    while ( 1 )
     {
-        eat_whitespace(beg, end);
-        switch ( *beg )
+        parse_whitespace(f);
+
+        jval_t val = parse_val(jsn, f);
+        *jarray_add_val(jarray_get_array(array)) = val;
+
+        parse_whitespace(f);
+
+        int ch = jgetc(f);
+        switch(ch)
         {
-            case '{': // object
-            {
-                parse_obj(jarray_add_obj(a), beg, end);
-                break;
-            }
-
-            case '[': // array
-            {
-                parse_array(jarray_add_array(a), beg, end);
-                break;
-            }
-
-            case '"': // string
-            {
-                jbuf_t* buf = &a.json->valbuf;
-                parse_string(beg, end, buf);
-                jarray_add_strl(a, buf->ptr, buf->len);
-                break;
-            }
-
-            case 't': // true
-                jarray_add_bool(a, true);
-                break;
-
-            case 'f': // false
-                jarray_add_bool(a, false);
-                break;
-
-            case 'n': // null
-                parse_null(beg, end);
-                jarray_add_nil(a);
-                break;
-
-            case '-': // number
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
-                jarray_add_num(a, parse_number(beg, end));
-                break;
-
-            default:
-                json_assert(false, "invalid character: '%c'", *beg);
-                break;
-        }
-        eat_whitespace(beg, end);
-
-        // either another or the end
-        switch (*beg)
-        {
-            case ']':
-                ++beg;
-                jarray_truncate(jarray_get_array(a));
-                return;
-
             case ',':
                 break;
 
+            case ']':
+                return;
+
             default:
-                json_assert(false, "");
+                json_assert(jfalse, "expected ',' or ']' when parsing array: '%c'", ch);
         }
     }
-
-    json_assert(false, "unexpected end of stream while reading array");
 }
 
 //------------------------------------------------------------------------------
-template < typename T >
-inline void parse_obj( jobj_t obj, T& beg, const T& end )
+void parse_obj(jobj_t obj, void* f)
 {
     json_t* jsn = obj.json;
 
-    json_assert(beg != end, "unexpected end of file");
-    while (++beg != end)
+    while (1)
     {
-        eat_whitespace(beg, end);
+        parse_whitespace(f);
 
-        parse_string(beg, end, &jsn->keybuf);
+        // get the key
+        parse_str(&jsn->keybuf, f);
         const char* key = jsn->keybuf.ptr;
 
-        eat_whitespace(beg, end);
-        json_assert(*beg == ':', "invalid character '%c', following key, expected: ':'", *beg); ++beg;
-        eat_whitespace(beg, end);
+        parse_whitespace(f);
+        json_assert(jgetc(f) == ':', "");
+        parse_whitespace(f);
 
-        switch ( *beg )
+        jval_t val = parse_val(jsn, f);
+        jobj_add_kval(jobj_get_obj(obj), key, val);
+
+        parse_whitespace(f);
+
+        int ch = jgetc(f);
+        switch (ch)
         {
-            case '{': // object
-            {
-                parse_obj(jobj_add_obj(obj, key), beg, end);
-                break;
-            }
-
-            case '[': // array
-            {
-                parse_array(jobj_add_array(obj, key), beg, end);
-                break;
-            }
-
-            case '"': // string
-            {
-                parse_string(beg, end, &jsn->valbuf);
-                jobj_add_strl(obj, key, jsn->valbuf.ptr, jsn->valbuf.len);
-                break;
-            }
-
-            case 't': // true
-                parse_true(beg, end);
-                jobj_add_bool(obj, key, true);
+            case ',':
                 break;
 
-            case 'f': // false
-                parse_false(beg, end);
-                jobj_add_bool(obj, key, false);
-                break;
-
-            case 'n': // null
-                parse_null(beg, end);
-                jobj_add_nil(obj, key);
-                break;
-
-            case '-': // number
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
-                jobj_add_num(obj, key, parse_number(beg, end));
-                break;
-
-            default:
-                json_assert(false, "invalid character: '%c'", *beg);
-                break;
-        }
-        eat_whitespace(beg, end);
-
-        // either another or the end
-        switch (*beg)
-        {
-            case '}': // end of object
-                ++beg;
-                jobj_truncate(jobj_get_obj(obj));
+            case '}':
                 return;
 
-            case ',': // another key
-                break;
-
             default:
-                json_assert(false, "unexpected character: '%c'", *beg);
-                break;
+                json_assert(jfalse, "expected ',' or '}' when parsing object: '%c'", ch);
         }
     }
-
-    json_assert(false, "unexpected end of file");
 }
 
+//------------------------------------------------------------------------------
+jval_t parse_val( json_t* jsn, void* f )
+{
+    int ch = jgetc(f);
+    switch(ch)
+    {
+        case '{': // obj
+        {
+            size_t idx = json_add_obj(jsn);
+            parse_obj((jobj_t){jsn, idx}, f);
+            return (jval_t){JTYPE_OBJ, (uint32_t)idx};
+        }
+
+        case '[': // array
+        {
+            size_t idx = json_add_array(jsn);
+            parse_array((jarray_t){jsn, idx}, f);
+            return (jval_t){JTYPE_ARRAY, (uint32_t)idx};
+        }
+
+        case '"': // string
+        {
+            junget(ch, f);
+            jbuf_t* buf = &jsn->valbuf;
+            parse_str(buf, f);
+            return (jval_t){JTYPE_STR, (uint32_t)json_add_strl(jsn, buf->ptr, buf->len)};
+        }
+
+        case 't': // true
+            parse_literal(jsn, f, "true");
+            return (jval_t){JTYPE_TRUE, 0};
+
+        case 'f': // false
+            parse_literal(jsn, f, "false");
+            return (jval_t){JTYPE_FALSE, 0};
+
+        case 'n': // null
+            parse_literal(jsn, f, "null");
+            return (jval_t){JTYPE_NIL, 0};
+
+        case '-': // number
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+        {
+            junget(ch, f);
+            jnum_t num = parse_num(f);
+            return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
+        }
+
+        default:
+            json_assert(jfalse, "");
+    }
+
+    return (jval_t){JTYPE_NIL, 0};
+}
+
+
 #pragma mark - io
-
-//------------------------------------------------------------------------------
-class stdfile
-{
-public:
-    stdfile()
-        : m_file(NULL)
-        , m_off(0)
-        , m_pos(0)
-        , m_buflen(0)
-    {}
-
-    stdfile( FILE* file )
-        : m_file(file)
-        , m_off(0)
-        , m_pos(0)
-        , m_buflen(0)
-    {
-        assert(m_file);
-        m_buflen = fread(m_buf, 1, sizeof(m_buf), m_file);
-        assert(m_buflen);
-    }
-
-    stdfile( const char* path )
-        : m_file(NULL)
-        , m_off(0)
-        , m_pos(0)
-        , m_buflen(0)
-    {
-        m_file = fopen(path, "r");
-        assert(m_file);
-        m_buflen = fread(m_buf, 1, sizeof(m_buf), m_file);
-        assert(m_buflen);
-    }
-
-    stdfile ( stdfile&& mv )
-        : m_file(mv.m_file)
-        , m_off(mv.m_off)
-        , m_buflen(mv.m_buflen)
-        , m_pos(mv.m_pos)
-    {
-        memcpy(m_buf, mv.m_buf, sizeof(m_buf));
-        mv.m_file = NULL;
-        mv.m_off = 0;
-    }
-
-    stdfile& operator= ( stdfile&& mv )
-    {
-        m_file = mv.m_file;
-        m_off = mv.m_off;
-        m_buflen = mv.m_buflen;
-        m_pos = mv.m_pos;
-        memcpy(m_buf, mv.m_buf, sizeof(m_buf));
-
-        mv.m_file = NULL;
-        mv.m_off = 0;
-        return *this;
-    }
-
-    stdfile( const stdfile& ) = delete;
-    stdfile& operator= ( const stdfile& ) = delete;
-
-    ~stdfile()
-    {
-        if (m_file) fclose(m_file);
-    }
-
-    bool operator== ( const stdfile& rhs ) const
-    {
-        return (m_file == rhs.m_file && m_off == rhs.m_off);
-    }
-
-    bool operator!= ( const stdfile& rhs ) const { return !this->operator==(rhs); }
-
-//    memfile operator ++(int) // postfix ++
-//    {
-//        memfile copy = *this;
-//        ++*this;
-//        return copy;
-//    }
-
-    stdfile& operator ++() // ++ prefix
-    {
-        assert(m_buflen > 0);
-        if (++m_pos >= m_buflen)
-        {
-            m_off += m_pos;
-            m_buflen = fread(m_buf, 1, sizeof(m_buf), m_file);
-            m_pos = 0;
-
-            if (m_buflen == 0)
-            {
-                fclose(m_file);
-                m_file = NULL;
-                m_off = 0;
-            }
-        }
-
-        return *this;
-    }
-
-    const char& operator*() const
-    {
-        return m_buf[m_pos];
-    }
-
-protected:
-    FILE* m_file;
-
-    size_t m_buflen;
-    size_t m_pos;
-    char m_buf[4096];
-
-    size_t m_off;
-};
-
-//------------------------------------------------------------------------------
-class memfile
-{
-public:
-    memfile()
-        : m_cur(NULL)
-        , m_beg(NULL)
-        , m_end(NULL)
-        , m_off(0)
-        , m_len(0)
-        , m_fd(0)
-    {}
-
-    memfile( const char* path )
-        : m_cur(NULL)
-        , m_beg(NULL)
-        , m_end(NULL)
-        , m_off(0)
-        , m_len(0)
-        , m_fd(0)
-    {
-        m_fd = open(path, O_RDONLY);
-        assert(m_fd);
-
-        struct stat st;
-        int rt = fstat(m_fd, &st);
-        assert (rt == 0);
-        m_len = st.st_size;
-
-        size_t psize = getpagesize();
-
-        size_t len = MIN(m_len, psize);
-        m_beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, m_fd, m_off);
-        m_cur = m_beg;
-        m_end = m_beg + len;
-
-        posix_madvise(m_beg, len, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
-    }
-
-    memfile ( memfile&& mv )
-        : m_cur(mv.m_cur)
-        , m_beg(mv.m_beg)
-        , m_end(mv.m_end)
-        , m_off(mv.m_off)
-        , m_len(mv.m_len)
-        , m_fd(mv.m_fd)
-    {
-        mv.m_cur = mv.m_beg = mv.m_end = NULL;
-        mv.m_off = 0;
-        mv.m_len = 0;
-        mv.m_fd = 0;
-    }
-
-    memfile& operator= ( memfile&& mv )
-    {
-        m_cur = mv.m_cur;
-        m_beg = mv.m_beg;
-        m_end = mv.m_end;
-        m_off = mv.m_off;
-        m_len = mv.m_len;
-        m_fd = mv.m_fd;
-        mv.m_cur = mv.m_beg = mv.m_end = NULL;
-        mv.m_off = 0;
-        mv.m_len = 0;
-        mv.m_fd = 0;
-        return *this;
-    }
-
-    memfile( const memfile& ) = delete;
-    memfile& operator= ( const memfile& ) = delete;
-
-    ~memfile()
-    {
-        if (m_fd) close(m_fd);
-        if (m_beg) munmap(m_beg, m_end-m_beg);
-    }
-
-    bool operator== ( const memfile& rhs ) const
-    {
-        return (m_fd == rhs.m_fd && m_off == rhs.m_off && m_len == rhs.m_len && (m_cur-m_beg) == (rhs.m_cur-m_beg));
-    }
-
-    bool operator!= ( const memfile& rhs ) const { return !this->operator==(rhs); }
-
-//    memfile operator ++(int) // postfix ++
-//    {
-//        memfile copy = *this;
-//        ++*this;
-//        return copy;
-//    }
-
-    memfile& operator ++() // ++ prefix
-    {
-        if (++m_cur == m_end)
-        {
-            // done with this page
-            size_t len = m_end - m_beg;
-            munmap(m_beg, len);
-            m_off += len;
-
-            if (m_off >= m_len)
-            {
-                m_cur = m_beg = m_end = NULL;
-                m_len = 0;
-                m_off = 0;
-                m_fd = 0;
-            }
-            else
-            {
-                len = MIN(len, m_len-m_off);
-                assert (len > 0);
-
-                m_beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, m_fd, m_off);
-                m_cur = m_beg;
-                m_end = m_beg + len;
-
-                posix_madvise(m_beg, len, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
-            }
-        }
-        return *this;
-    }
-
-    const char& operator*() const
-    {
-        return *m_cur;
-    }
-
-protected:
-    int m_fd;
-    size_t m_off;
-    size_t m_len;
-    char* m_cur;
-    char* m_beg;
-    char* m_end;
-};
 
 #include <mach/vm_statistics.h>
 #include <mach/mach_types.h>
@@ -2121,15 +1844,33 @@ void print_mem_usage()
 }
 
 //------------------------------------------------------------------------------
-void json_parse_file( json_t* jsn, FILE* file )
+void json_parse_file( json_t* jsn, void* file )
 {
-    stdfile beg = file;
-    stdfile end;
-
     print_mem_usage();
-    parse_obj(json_root(jsn), beg, end);
+
+    int ch = jgetc(file);
+    switch (ch)
+    {
+        case '{':
+            parse_obj(json_root(jsn), file);
+            break;
+
+        default:
+            break;
+    }
     print_mem_usage();
 }
+
+////------------------------------------------------------------------------------
+//void json_parse_file( json_t* jsn, FILE* file )
+//{
+//    stdfile beg = file;
+//    stdfile end;
+//
+//    print_mem_usage();
+//    parse_obj(json_root(jsn), beg, end);
+//    print_mem_usage();
+//}
 
 //------------------------------------------------------------------------------
 json_t* json_load_file( const char* path )
@@ -2139,7 +1880,7 @@ json_t* json_load_file( const char* path )
 #define STD_READ        0x2
 #define ONESHOT_READ    0x4
 
-#define READ_METHOD ONESHOT_READ
+#define READ_METHOD STD_READ
 
 #if READ_METHOD == PAGED_READ
     printf("Parsing json using [paged mmap] method\n");
@@ -2158,9 +1899,14 @@ json_t* json_load_file( const char* path )
     FILE* file = fopen(path, "r");
     assert(file);
 
+    struct jfile jf;
+    jf.file = file;
+    jf.len = 0;
+    jf.pos = 0;
+
     json_t* jsn = json_new();
     print_mem_usage();
-    json_parse_file(jsn, file);
+    json_parse_file(jsn, &jf);
     print_mem_usage();
 
 #elif READ_METHOD == ONESHOT_READ
