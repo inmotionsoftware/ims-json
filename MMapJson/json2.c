@@ -1338,6 +1338,7 @@ jobj_t json_root(json_t* jsn)
 
 #pragma mark - parse
 
+//------------------------------------------------------------------------------
 struct jfile
 {
     FILE* file;
@@ -1347,38 +1348,34 @@ struct jfile
 };
 
 //------------------------------------------------------------------------------
-int jgetc( void* ctx )
+int jpeek( void* ctx )
 {
     struct jfile* f = (struct jfile*)ctx;
-    if (f->len == 0)
+    if (f->len == SIZE_T_MAX)
+    {
+        return EOF;
+    }
+
+    if (f->pos >= f->len)
     {
         f->len = fread(f->buf, 1, 4096, f->file);
         f->pos = 0;
     }
-    else if (f->pos >= f->len)
-    {
-        f->buf[0] = f->buf[f->len-1];
-        f->len = fread(f->buf+1, 1, 4095, f->file);
-        assert(f->len > 0);
-        f->len++;
-        f->pos = 1;
-    }
-
-    return f->buf[f->pos++];
+    return f->buf[f->pos];
 }
 
 //------------------------------------------------------------------------------
-void junget( int ch, void* ctx )
+int jnext( void* ctx )
 {
     struct jfile* f = (struct jfile*)ctx;
-    assert(f->pos > 0);
-    f->pos--;
+    ++f->pos;
+    return jpeek(ctx);
 }
 
 //------------------------------------------------------------------------------
 JINLINE void parse_whitespace( void* ctx )
 {
-    for ( int ch = jgetc(ctx); ch >= 0; ch = jgetc(ctx) )
+    for ( int ch = jpeek(ctx); ch >= 0; ch = jnext(ctx) )
     {
         switch(ch)
         {
@@ -1391,7 +1388,6 @@ JINLINE void parse_whitespace( void* ctx )
                 break;
 
             default:
-                junget(ch, ctx);
                 return;
         }
     }
@@ -1464,28 +1460,28 @@ JINLINE void utf8_encode(int32_t codepoint, jbuf_t* str )
 //------------------------------------------------------------------------------
 JINLINE void parse_literal(json_t* jsn, void* f, const char* str)
 {
-    for ( const char* s = ++str; *s; s++ )
+    int ch = ch = jnext(f);
+    for ( const char* s = ++str; *s; s++, ch = jnext(f))
     {
-        int ch = jgetc(f);
         json_assert(ch == *s, "expected string literal: '%s'", str);
     }
 }
 
-
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_sign( void* f )
+JINLINE jnum_t parse_sign( void* ctx )
 {
-    int ch = jgetc(f);
+    int ch = jpeek(ctx);
     switch (ch)
     {
         case '-':
+            jnext(ctx);
             return -1;
 
         case '+':
+            jnext(ctx);
             return 1;
 
         default:
-            junget(ch, f);
             return 1;
     }
 }
@@ -1494,7 +1490,7 @@ JINLINE jnum_t parse_sign( void* f )
 JINLINE jnum_t parse_digitsp( void* ctx, size_t* places)
 {
     jnum_t num = 0;
-    for ( int ch = jgetc(ctx), cnt = 0; ch >= 0; ch = jgetc(ctx), ++cnt )
+    for ( int ch = jpeek(ctx), cnt = 0; ch >= 0; ch = jnext(ctx), ++cnt )
     {
         switch (ch)
         {
@@ -1515,7 +1511,6 @@ JINLINE jnum_t parse_digitsp( void* ctx, size_t* places)
 
             default:
             {
-                junget(ch, ctx);
                 *places = pow(10, cnt);
                 return num;
             }
@@ -1542,17 +1537,15 @@ JINLINE jnum_t parse_num( void* ctx )
     // whole number
     jnum_t num = parse_digits(ctx);
 
-    int ch = jgetc(ctx);
-
     // fraction
-    switch (ch)
+    switch (jpeek(ctx))
     {
         case '.':
         {
+            jnext(ctx);
             size_t places = 1;
             jnum_t fract = parse_digitsp(ctx, &places);
             num += fract / places;
-            ch = jgetc(ctx);
             break;
         }
 
@@ -1561,11 +1554,12 @@ JINLINE jnum_t parse_num( void* ctx )
     }
 
     // scientific notation
-    switch (ch)
+    switch (jpeek(ctx))
     {
         case 'e':
         case 'E':
         {
+            jnext(ctx);
             jnum_t esign = parse_sign(ctx);
             jnum_t digits = parse_digits(ctx);
             num *= pow(10, esign*digits);
@@ -1573,7 +1567,6 @@ JINLINE jnum_t parse_num( void* ctx )
         }
 
         default:
-            junget(ch, ctx);
             break;
     }
 
@@ -1584,10 +1577,10 @@ JINLINE jnum_t parse_num( void* ctx )
 //------------------------------------------------------------------------------
 JINLINE unsigned int parse_unicode_hex(void* f)
 {
-    return char_to_hex(jgetc(f)) << 12 |
-           char_to_hex(jgetc(f)) << 8 |
-           char_to_hex(jgetc(f)) << 4 |
-           char_to_hex(jgetc(f));
+    return char_to_hex(jpeek(f)) << 12 |
+           char_to_hex(jnext(f)) << 8 |
+           char_to_hex(jnext(f)) << 4 |
+           char_to_hex(jnext(f));
 }
 
 //------------------------------------------------------------------------------
@@ -1600,8 +1593,8 @@ JINLINE void parse_unicode2( jbuf_t* str, void* f )
     // surrogate pair, \uXXXX\uXXXXX
     if (0xD800 <= val && val <= 0xDBFF)
     {
-        json_assert(jgetc(f) == '\\', "invalid unicode");
-        json_assert(jgetc(f) == 'u', "invalid unicode");
+        json_assert(jnext(f) == '\\', "invalid unicode");
+        json_assert(jnext(f) == 'u', "invalid unicode");
 
         // read the surrogate pair from the stream
         unsigned int val2 = parse_unicode_hex(f);
@@ -1618,14 +1611,14 @@ JINLINE void parse_unicode2( jbuf_t* str, void* f )
 }
 
 //------------------------------------------------------------------------------
-void parse_str(jbuf_t* str, void* f)
+void parse_str(jbuf_t* str, void* ctx)
 {
-    int prev = jgetc(f);
+    int prev = jpeek(ctx);
     json_assert(prev == '"', "valid strings must start with a '\"' character");
 
     jbuf_clear(str);
 
-    for (int ch = jgetc(f); ch >= 0; ch = jgetc(f) )
+    for (int ch = jnext(ctx); ch >= 0; ch = jnext(ctx) )
     {
         switch (prev)
         {
@@ -1652,7 +1645,7 @@ void parse_str(jbuf_t* str, void* f)
                         jbuf_add(str, '\t');
                         break;
                     case 'u':
-                        parse_unicode2(str, f);
+                        parse_unicode2(str, ctx);
                         break;
                     case '"':
                         jbuf_add(str, '\"');
@@ -1677,6 +1670,7 @@ void parse_str(jbuf_t* str, void* f)
                         break;
 
                     case '"':
+                        jnext(ctx);
                         jbuf_add(str, '\0');
                         return;
 
@@ -1696,26 +1690,29 @@ void parse_str(jbuf_t* str, void* f)
 jval_t parse_val( json_t* jsn, void* f );
 
 //------------------------------------------------------------------------------
-void parse_array(jarray_t array, void* f)
+void parse_array(jarray_t array, void* ctx)
 {
+    json_assert(jpeek(ctx) == '[', ""); jnext(ctx);
     json_t* jsn = array.json;
 
     while ( 1 )
     {
-        parse_whitespace(f);
+        parse_whitespace(ctx);
 
-        jval_t val = parse_val(jsn, f);
+        jval_t val = parse_val(jsn, ctx);
         *jarray_add_val(jarray_get_array(array)) = val;
 
-        parse_whitespace(f);
+        parse_whitespace(ctx);
 
-        int ch = jgetc(f);
+        int ch = jpeek(ctx);
         switch(ch)
         {
             case ',':
+                jnext(ctx);
                 break;
 
             case ']':
+                jnext(ctx);
                 return;
 
             default:
@@ -1725,34 +1722,37 @@ void parse_array(jarray_t array, void* f)
 }
 
 //------------------------------------------------------------------------------
-void parse_obj(jobj_t obj, void* f)
+void parse_obj(jobj_t obj, void* ctx)
 {
+    json_assert(jpeek(ctx) == '{', ""); jnext(ctx);
     json_t* jsn = obj.json;
 
     while (1)
     {
-        parse_whitespace(f);
+        parse_whitespace(ctx);
 
         // get the key
-        parse_str(&jsn->keybuf, f);
+        parse_str(&jsn->keybuf, ctx);
         const char* key = jsn->keybuf.ptr;
 
-        parse_whitespace(f);
-        json_assert(jgetc(f) == ':', "");
-        parse_whitespace(f);
+        parse_whitespace(ctx);
+        json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
+        parse_whitespace(ctx);
 
-        jval_t val = parse_val(jsn, f);
+        jval_t val = parse_val(jsn, ctx);
         jobj_add_kval(jobj_get_obj(obj), key, val);
 
-        parse_whitespace(f);
+        parse_whitespace(ctx);
 
-        int ch = jgetc(f);
+        int ch = jpeek(ctx);
         switch (ch)
         {
             case ',':
+                jnext(ctx);
                 break;
 
             case '}':
+                jnext(ctx);
                 return;
 
             default:
@@ -1764,7 +1764,7 @@ void parse_obj(jobj_t obj, void* f)
 //------------------------------------------------------------------------------
 jval_t parse_val( json_t* jsn, void* f )
 {
-    int ch = jgetc(f);
+    int ch = jpeek(f);
     switch(ch)
     {
         case '{': // obj
@@ -1783,7 +1783,6 @@ jval_t parse_val( json_t* jsn, void* f )
 
         case '"': // string
         {
-            junget(ch, f);
             jbuf_t* buf = &jsn->valbuf;
             parse_str(buf, f);
             return (jval_t){JTYPE_STR, (uint32_t)json_add_strl(jsn, buf->ptr, buf->len)};
@@ -1813,7 +1812,6 @@ jval_t parse_val( json_t* jsn, void* f )
         case '8':
         case '9':
         {
-            junget(ch, f);
             jnum_t num = parse_num(f);
             return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
         }
@@ -1848,7 +1846,7 @@ void json_parse_file( json_t* jsn, void* file )
 {
     print_mem_usage();
 
-    int ch = jgetc(file);
+    int ch = jpeek(file);
     switch (ch)
     {
         case '{':
