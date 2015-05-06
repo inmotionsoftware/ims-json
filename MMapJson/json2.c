@@ -41,6 +41,11 @@
     #define json_fprintf(F, FMT, ...)
 #endif
 
+#define STD_READ        0x1
+#define ONESHOT_READ    0x2
+#define PRINT_MEMORY    1
+#define READ_METHOD     STD_READ
+
 #pragma mark - constants
 
 #define JINLINE static inline
@@ -159,6 +164,7 @@ typedef struct _jarray_t _jarray_t;
 //------------------------------------------------------------------------------
 JINLINE void _jarray_print(_jarray_t* root, size_t depth, FILE* f);
 size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen);
+void print_memory_stats(json_t*);
 
 #pragma mark - util
 
@@ -1226,48 +1232,31 @@ json_t* json_new()
     return jsn;
 }
 
-//------------------------------------------------------------------------------
-void json_parse_buf( json_t* jsn, void* ptr, size_t len )
-{
+////------------------------------------------------------------------------------
+//void json_parse_path( json_t* jsn, const char* path )
+//{
 //    assert(jsn);
+//    assert(path);
+//
+//    int fd = open(path, O_RDONLY);
+//    if (!fd) return;
+//
+//    struct stat st;
+//    if (fstat(fd, &st) != 0)
+//    {
+//        close(fd);
+//        return;
+//    }
+//
+//    printf("[FILE_SIZE]: %0.1f MB\n", btomb(st.st_size) );
+//
+//    void* ptr = (char*)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED|MAP_NORESERVE, fd, 0);
 //    assert(ptr);
 //
-//    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
-//    json_nums_reserve(jsn, ceilf(len*0.01));
-//    json_arrays_reserve(jsn, ceilf(len*0.01));
-//    json_objs_reserve(jsn, ceilf(len*0.01));
-//
-//    parse_obj(json_root(jsn), &ptr);
-//    jbuf_destroy(&jsn->keybuf);
-//    jbuf_destroy(&jsn->valbuf);
-}
-
-
-//------------------------------------------------------------------------------
-void json_parse_path( json_t* jsn, const char* path )
-{
-    assert(jsn);
-    assert(path);
-
-    int fd = open(path, O_RDONLY);
-    if (!fd) return;
-
-    struct stat st;
-    if (fstat(fd, &st) != 0)
-    {
-        close(fd);
-        return;
-    }
-
-    printf("[FILE_SIZE]: %0.1f MB\n", btomb(st.st_size) );
-
-    void* ptr = (char*)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED|MAP_NORESERVE, fd, 0);
-    assert(ptr);
-
-    posix_madvise(ptr, st.st_size, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
-    json_parse_buf(jsn, ptr, st.st_size);
-    munmap(ptr, st.st_size);
-}
+//    posix_madvise(ptr, st.st_size, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
+//    json_parse_buf(jsn, ptr, st.st_size);
+//    munmap(ptr, st.st_size);
+//}
 
 //------------------------------------------------------------------------------
 void json_print(json_t* jsn, FILE* f)
@@ -1338,19 +1327,42 @@ jobj_t json_root(json_t* jsn)
 
 #pragma mark - parse
 
-//------------------------------------------------------------------------------
-struct jfile
+//--------------------------------------------------------------------------
+struct jread_mem_t
+{
+    char* beg;
+    char* end;
+};
+
+//--------------------------------------------------------------------------
+JINLINE int jpeek_MEM( void* ctx )
+{
+    struct jread_mem_t* file = (struct jread_mem_t*)ctx;
+    if (file->beg == file->end) return EOF;
+    return *file->beg;
+}
+
+//--------------------------------------------------------------------------
+JINLINE int jnext_MEM( void* ctx )
+{
+    struct jread_mem_t* file = (struct jread_mem_t*)ctx;
+    return *++file->beg;
+}
+
+//--------------------------------------------------------------------------
+#define IO_BUF_SIZE 4096
+struct jread_file_t
 {
     FILE* file;
-    char buf[4096];
+    char buf[IO_BUF_SIZE];
     size_t pos;
     size_t len;
 };
 
-//------------------------------------------------------------------------------
-int jpeek( void* ctx )
+//--------------------------------------------------------------------------
+JINLINE int jpeek_FILE( void* ctx )
 {
-    struct jfile* f = (struct jfile*)ctx;
+    struct jread_file_t* f = (struct jread_file_t*)ctx;
     if (f->len == SIZE_T_MAX)
     {
         return EOF;
@@ -1358,19 +1370,22 @@ int jpeek( void* ctx )
 
     if (f->pos >= f->len)
     {
-        f->len = fread(f->buf, 1, 4096, f->file);
+        f->len = fread(f->buf, 1, IO_BUF_SIZE, f->file);
         f->pos = 0;
     }
     return f->buf[f->pos];
 }
 
-//------------------------------------------------------------------------------
-int jnext( void* ctx )
+//--------------------------------------------------------------------------
+JINLINE int jnext_FILE( void* ctx )
 {
-    struct jfile* f = (struct jfile*)ctx;
+    struct jread_file_t* f = (struct jread_file_t*)ctx;
     ++f->pos;
-    return jpeek(ctx);
+    return jpeek_FILE(ctx);
 }
+
+#define jpeek jpeek_MEM
+#define jnext jnext_MEM
 
 //------------------------------------------------------------------------------
 JINLINE void parse_whitespace( void* ctx )
@@ -1842,62 +1857,37 @@ void print_mem_usage()
 }
 
 //------------------------------------------------------------------------------
-void json_parse_file( json_t* jsn, void* file )
+void json_parse_file( json_t* jsn, void* ctx )
 {
     print_mem_usage();
 
-    int ch = jpeek(file);
+    assert(jsn);
+    assert(ctx);
+
+    int ch = jpeek(ctx);
     switch (ch)
     {
         case '{':
-            parse_obj(json_root(jsn), file);
+            parse_obj(json_root(jsn), ctx);
             break;
 
         default:
             break;
     }
+
     print_mem_usage();
 }
-
-////------------------------------------------------------------------------------
-//void json_parse_file( json_t* jsn, FILE* file )
-//{
-//    stdfile beg = file;
-//    stdfile end;
-//
-//    print_mem_usage();
-//    parse_obj(json_root(jsn), beg, end);
-//    print_mem_usage();
-//}
 
 //------------------------------------------------------------------------------
 json_t* json_load_file( const char* path )
 {
-
-#define PAGED_READ      0x1
-#define STD_READ        0x2
-#define ONESHOT_READ    0x4
-
-#define READ_METHOD STD_READ
-
-#if READ_METHOD == PAGED_READ
-    printf("Parsing json using [paged mmap] method\n");
-
-    memfile beg = path;
-    memfile end;
-
-    print_mem_usage();
-    json_t* jsn = json_new();
-    parse_obj(json_root(jsn), beg, end);
-    print_mem_usage();
-
-#elif READ_METHOD == STD_READ
+#if READ_METHOD == STD_READ
     printf("Parsing json using [fread] method\n");
 
     FILE* file = fopen(path, "r");
     assert(file);
 
-    struct jfile jf;
+    struct jread_file_t jf;
     jf.file = file;
     jf.len = 0;
     jf.pos = 0;
@@ -1910,21 +1900,48 @@ json_t* json_load_file( const char* path )
 #elif READ_METHOD == ONESHOT_READ
     printf("Parsing json using [mmap] method\n");
 
+    int fd = open(path, O_RDONLY);
+    assert(fd);
+
+    struct stat st;
+    int rt = fstat(fd, &st);
+    assert( rt == 0 );
+    size_t len = st.st_size;
+
+    struct jread_mem_t mem;
+    mem.beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
+    mem.end = mem.beg + len;
+
     json_t* jsn = json_new();
+
+    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
+    json_nums_reserve(jsn, ceilf(len*0.01));
+    json_arrays_reserve(jsn, ceilf(len*0.01));
+    json_objs_reserve(jsn, ceilf(len*0.01));
+
     print_mem_usage();
-    json_parse_path(jsn, path);
+    json_parse_file(jsn, &mem);
     print_mem_usage();
+
+    jbuf_destroy(&jsn->keybuf);
+    jbuf_destroy(&jsn->valbuf);
+
+    munmap(mem.beg, len);
 
 #else
     #error must specify the file read method
 #endif
 
-#define PRINT_MEMORY 1
+
 #if PRINT_MEMORY
+    print_memory_stats(jsn);
+#endif
+    return jsn;
+}
 
-//    printf("Len: %zu Cap: %zu Load factor: %f\n", jsn->map.len, jsn->map.cap, jsn->map.len / (double)jsn->map.cap);
-//    printf("String memory: %0.1f MB\n", btomb(jsn->bytes));
-
+//------------------------------------------------------------------------------
+void print_memory_stats(json_t* jsn)
+{
     size_t total = 0;
     size_t total_reserve = 0;
 
@@ -2019,7 +2036,4 @@ json_t* json_load_file( const char* path )
 
     printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
     print_mem_usage();
-#endif
-
-    return jsn;
 }
