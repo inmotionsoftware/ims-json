@@ -44,11 +44,23 @@
 #define STD_READ        0x1
 #define ONESHOT_READ    0x2
 #define PRINT_MEMORY    1
-#define READ_METHOD     STD_READ
+#define READ_METHOD     ONESHOT_READ
+
+#if READ_METHOD == STD_READ
+    #define jpeek jpeek_FILE
+    #define jnext jnext_FILE
+#elif READ_METHOD == ONESHOT_READ
+    #define jpeek jpeek_MEM
+    #define jnext jnext_MEM
+#endif
 
 #pragma mark - constants
 
-#define JINLINE static inline
+#if __STRICT_ANSI__
+    #define JINLINE
+#else
+    #define JINLINE static inline
+#endif
 
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
@@ -60,8 +72,8 @@
 // pack short keys directly into the jkv_t struct if possible
 #define PACK_KEYS 1
 
-static const jbool jtrue = 1;
-static const jbool jfalse = 0;
+#define JTRUE 1
+#define JFALSE 0
 
 #pragma mark - structs
 
@@ -1384,9 +1396,6 @@ JINLINE int jnext_FILE( void* ctx )
     return jpeek_FILE(ctx);
 }
 
-#define jpeek jpeek_MEM
-#define jnext jnext_MEM
-
 //------------------------------------------------------------------------------
 JINLINE void parse_whitespace( void* ctx )
 {
@@ -1435,7 +1444,7 @@ JINLINE unsigned char char_to_hex(int ch)
         case 'e': return 0xE;
         case 'F':
         case 'f': return 0xF;
-        default: json_assert(jfalse, "invalid unicode hex digit: '%c'", ch);
+        default: json_assert(JFALSE, "invalid unicode hex digit: '%c'", ch);
     }
     return 0;
 }
@@ -1443,7 +1452,7 @@ JINLINE unsigned char char_to_hex(int ch)
 //------------------------------------------------------------------------------
 JINLINE void utf8_encode(int32_t codepoint, jbuf_t* str )
 {
-    json_assert(codepoint > 0, "invalid unicode");
+    json_assert(codepoint > 0, "invalid unicode: %d", codepoint);
     if(codepoint < 0x80)
     {
         jbuf_add(str, (char)codepoint);
@@ -1468,7 +1477,7 @@ JINLINE void utf8_encode(int32_t codepoint, jbuf_t* str )
     }
     else
     {
-        json_assert(jfalse, "invalid unicode");
+        json_assert(JFALSE, "invalid unicode: %d", codepoint);
     }
 }
 
@@ -1532,7 +1541,7 @@ JINLINE jnum_t parse_digitsp( void* ctx, size_t* places)
         }
     }
 
-    json_assert(jfalse, "unexpected end of file");
+    json_assert(JFALSE, "unexpected end of file");
     return num;
 }
 
@@ -1671,7 +1680,7 @@ void parse_str(jbuf_t* str, void* ctx)
                         break;
 
                     default:
-                        json_assert(jfalse, "invalid escape sequence '\\%c'", ch);
+                        json_assert(JFALSE, "invalid escape sequence '\\%c'", ch);
                         break;
                 }
                 break;
@@ -1699,7 +1708,7 @@ void parse_str(jbuf_t* str, void* ctx)
         prev = ch;
     }
 
-    json_assert(jfalse, "string terminated unexpectedly");
+    json_assert(JFALSE, "string terminated unexpectedly");
 }
 
 jval_t parse_val( json_t* jsn, void* f );
@@ -1731,7 +1740,7 @@ void parse_array(jarray_t array, void* ctx)
                 return;
 
             default:
-                json_assert(jfalse, "expected ',' or ']' when parsing array: '%c'", ch);
+                json_assert(JFALSE, "expected ',' or ']' when parsing array: '%c'", ch);
         }
     }
 }
@@ -1771,7 +1780,7 @@ void parse_obj(jobj_t obj, void* ctx)
                 return;
 
             default:
-                json_assert(jfalse, "expected ',' or '}' when parsing object: '%c'", ch);
+                json_assert(JFALSE, "expected ',' or '}' when parsing object: '%c'", ch);
         }
     }
 }
@@ -1832,7 +1841,7 @@ jval_t parse_val( json_t* jsn, void* f )
         }
 
         default:
-            json_assert(jfalse, "");
+            json_assert(JFALSE, "invalid value: expectected: object, array, number, string, true, false, or null.");
     }
 
     return (jval_t){JTYPE_NIL, 0};
@@ -2006,9 +2015,9 @@ void print_memory_stats(json_t* jsn)
         // hashmap memory usage
         mem += jsn->strmap.bcap * sizeof(jmapbucket_t);
         reserve += jsn->strmap.bcap * sizeof(jmapbucket_t);
-        for ( size_t i = 0; i < jsn->strmap.bcap; ++i )
+        for ( size_t n = 0; n < jsn->strmap.bcap; ++n )
         {
-            jmapbucket_t* bucket = &jsn->strmap.buckets[i];
+            jmapbucket_t* bucket = &jsn->strmap.buckets[n];
             if (bucket->slots)
             {
                 mem += bucket->len*sizeof(size_t);
