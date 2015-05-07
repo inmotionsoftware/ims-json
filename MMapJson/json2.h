@@ -9,23 +9,27 @@
 #ifndef __MMapJson__json2__
 #define __MMapJson__json2__
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
+#ifdef __cplusplus
+extern "C" {
+namespace ims {
+#endif
 
 //------------------------------------------------------------------------------
 typedef double jnum_t;
-typedef uint8_t jbool;
+typedef uint8_t jbool_t;
 typedef uint32_t jsize_t;
 
 //------------------------------------------------------------------------------
 struct jstr_t;
 struct _jobj_t;
 struct _jarray_t;
+struct jlist_t;
+struct json_t;
 
 //------------------------------------------------------------------------------
 enum jtype
@@ -41,6 +45,26 @@ enum jtype
 #define JTYPE_MASK 0x7
 
 //------------------------------------------------------------------------------
+struct jval_t
+{
+    uint32_t type : 4;
+    uint32_t idx : 28;
+};
+typedef struct jval_t jval_t;
+
+void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f );
+
+#define jval_type(VAL)      (VAL.type & JTYPE_MASK)
+#define jval_is_str(VAL)    (jval_type(VAL) == JTYPE_STR)
+#define jval_is_num(VAL)    (jval_type(VAL) == JTYPE_NUM)
+#define jval_is_obj(VAL)    (jval_type(VAL) == JTYPE_OBJ)
+#define jval_is_true(VAL)   (jval_type(VAL) == JTYPE_TRUE)
+#define jval_is_false(VAL)  (jval_type(VAL) == JTYPE_FALSE)
+#define jval_is_bool(VAL)   (jval_is_true(VAL) || jval_is_false(VAL))
+#define jval_is_nil(VAL)    (jval_type(VAL) == JTYPE_NIL)
+#define jval_is_array(VAL)  (jval_type(VAL) == JTYPE_ARRAY)
+
+//------------------------------------------------------------------------------
 struct jobj_t
 {
     struct json_t* json;
@@ -49,10 +73,18 @@ struct jobj_t
 typedef struct jobj_t jobj_t;
 
 void jobj_add_num( jobj_t obj, const char* key, jnum_t num );
-void jobj_add_str( jobj_t obj, const char* key, const char* str );
-void jobj_add_bool( jobj_t obj, const char* key, jbool b );
+void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen );
+void jobj_add_bool( jobj_t obj, const char* key, jbool_t b );
 void jobj_add_nil( jobj_t obj, const char* key );
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
+jval_t jobj_findl( jobj_t obj, const char* key, size_t klen );
+size_t jobj_len( jobj_t obj );
+const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
+void jobj_print(jobj_t obj, size_t depth, FILE* f);
+
+#define jobj_get_json(OBJ) (OBJ).json
+#define jobj_find(OBJ, KEY) jobj_findl(OBJ, KEY, strlen(KEY))
+#define jobj_add_str(OBJ, KEY, STR) jobj_add_strl(OBJ, KEY, STR, strlen(STR))
 
 //------------------------------------------------------------------------------
 struct jarray_t
@@ -62,14 +94,21 @@ struct jarray_t
 };
 typedef struct jarray_t jarray_t;
 
-struct jarray_t jobj_add_array( jobj_t obj, const char* key );
+jarray_t jobj_add_array( jobj_t obj, const char* key );
+void jarray_add_num( jarray_t a, jnum_t num );
+void jarray_add_strl( jarray_t a, const char* str, size_t slen );
+void jarray_add_bool( jarray_t a, jbool_t b );
+void jarray_add_nil(jarray_t a);
+jarray_t jarray_add_array(jarray_t a);
+jobj_t jarray_add_obj(jarray_t a);
+size_t jarray_len(jarray_t a);
+jval_t jarray_get(jarray_t a, size_t idx);
+void jarray_print( jarray_t array, size_t depth, FILE* f );
 
-void jarray_add_num( struct jarray_t a, jnum_t num );
-void jarray_add_str( struct jarray_t a, const char* str );
-void jarray_add_bool( struct jarray_t a, jbool b );
-void jarray_add_nil(struct jarray_t a);
-struct jarray_t jarray_add_array(struct jarray_t a);
-struct jobj_t jarray_add_obj(struct jarray_t a);
+#define jarray_add_str(A, STR) jarray_add_strl(A, STR, strlen(STR))
+#define jarray_get_json(A) (A).json
+#define jarray_get_str(A, IDX) json_get_str(jarray_get_json(A), jarray_get(A, IDX))
+#define jarray_get_num(A, IDX) json_get_num(jarray_get_json(A), jarray_get(A, IDX))
 
 //------------------------------------------------------------------------------
 struct jbuf_t
@@ -79,15 +118,6 @@ struct jbuf_t
     char* ptr;
 };
 typedef struct jbuf_t jbuf_t;
-
-//------------------------------------------------------------------------------
-struct jmapbucket_t
-{
-    size_t len;
-    size_t cap;
-    size_t* slots;
-};
-typedef struct jmapbucket_t jmapbucket_t;
 
 //------------------------------------------------------------------------------
 struct jmap_t
@@ -103,16 +133,6 @@ struct jmap_t
 typedef struct jmap_t jmap_t;
 
 //------------------------------------------------------------------------------
-struct jlist_t
-{
-    struct json_t* json; // pointer back to parent
-    size_t len;
-    size_t cap;
-    char data[0];
-};
-typedef struct jlist_t jlist_t;
-
-//------------------------------------------------------------------------------
 struct json_t
 {
     // objs
@@ -120,8 +140,8 @@ struct json_t
     size_t nums_cap;
     jnum_t* nums;
 
-    jlist_t* objs;
-    jlist_t* arrays;
+    struct jlist_t* objs;
+    struct jlist_t* arrays;
 
     jmap_t strmap;
 
@@ -136,7 +156,21 @@ void json_print(json_t* j, FILE*);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
 
+const char* json_get_str( json_t* jsn, jval_t val );
+jnum_t json_get_num( json_t* jsn, jval_t val );
+jbool_t json_get_bool( json_t* jsn, jval_t val );
+jobj_t json_get_obj( json_t* jsn, jval_t val );
+jarray_t json_get_array( json_t* jsn, jval_t val );
+
+#define jobj_find_str(OBJ, KEY) json_get_str(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+#define jobj_find_num(OBJ, KEY) json_get_num(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+#define jobj_find_bool(OBJ, KEY) json_get_bool(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+#define jobj_find_nil(OBJ, KEY) jval_is_nil(jobj_find(OBJ, KEY))
+#define jobj_find_obj(OBJ, KEY) json_get_obj(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+#define jobj_find_array(OBJ, KEY) json_get_array(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+
 #ifdef __cplusplus
+} // namespace
 }
 #endif
 
