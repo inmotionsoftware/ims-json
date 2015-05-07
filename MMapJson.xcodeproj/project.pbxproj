@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E756B0411AE14C64004ECF44 /* json.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E756B03F1AE14C64004ECF44 /* json.cpp */; };
 		E756B0441AE55228004ECF44 /* json2.c in Sources */ = {isa = PBXBuildFile; fileRef = E756B0421AE55228004ECF44 /* json2.c */; };
 		E77A13DF1AD5D443001068F1 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E77A13DE1AD5D443001068F1 /* main.cpp */; };
 /* End PBXBuildFile section */
@@ -26,7 +25,6 @@
 
 /* Begin PBXFileReference section */
 		E71609FF1ADB0B5D0014729D /* citylots.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = citylots.json; sourceTree = "<group>"; };
-		E756B03F1AE14C64004ECF44 /* json.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = json.cpp; sourceTree = "<group>"; };
 		E756B0401AE14C64004ECF44 /* json.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json.h; sourceTree = "<group>"; };
 		E756B0421AE55228004ECF44 /* json2.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = json2.c; sourceTree = "<group>"; };
 		E756B0431AE55228004ECF44 /* json2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json2.h; sourceTree = "<group>"; };
@@ -34,6 +32,7 @@
 		E77A13DB1AD5D443001068F1 /* MMapJson */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MMapJson; sourceTree = BUILT_PRODUCTS_DIR; };
 		E77A13DE1AD5D443001068F1 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		E77A13E51AD6E35A001068F1 /* test.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test.json; sourceTree = "<group>"; };
+		E79FE14F1AFBE698007AC026 /* json.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
 		E7BCE8141AE70790004E87D3 /* medium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = medium.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -73,9 +72,9 @@
 				E77A13E51AD6E35A001068F1 /* test.json */,
 				E77A13DE1AD5D443001068F1 /* main.cpp */,
 				E756B0401AE14C64004ECF44 /* json.h */,
-				E756B03F1AE14C64004ECF44 /* json.cpp */,
 				E756B0431AE55228004ECF44 /* json2.h */,
 				E756B0421AE55228004ECF44 /* json2.c */,
+				E79FE14F1AFBE698007AC026 /* json.hpp */,
 			);
 			path = MMapJson;
 			sourceTree = "<group>";
@@ -138,7 +137,6 @@
 			files = (
 				E756B0441AE55228004ECF44 /* json2.c in Sources */,
 				E77A13DF1AD5D443001068F1 /* main.cpp in Sources */,
-				E756B0411AE14C64004ECF44 /* json.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

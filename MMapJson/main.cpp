@@ -13,6 +13,8 @@ extern "C"
     #include "json2.h"
 }
 
+#include "json.hpp"
+
 #include <math.h>
 #include <assert.h>
 #include <sys/mman.h>
@@ -95,6 +97,20 @@ int main(int argc, const char * argv[])
     log_debug("starting 'test_construction'");
     double t2 = time_call(test_construction);
     log_debug("completed in: %f secs", t2);
+
+
+    ims::json jsn;
+    obj root = jsn.root();
+    root["key"] = "string";
+    root["num"] = 1.25;
+    root["array"].add_array(1, 2, 3, 4, 5, "blah");
+    root["obj"].add_obj("a", 1, "b", 2);
+
+//    for ( auto it = root.beg(); it != root.end(); ++it )
+//    {
+//        auto key = it->first;
+//        auto val = it->second;
+//    }
 
     return 0;
 }
