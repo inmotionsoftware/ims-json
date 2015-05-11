@@ -438,7 +438,8 @@ namespace ims
     //--------------------------------------------------------------------------
     std::ostream& operator<< ( std::ostream& os, const json& j )
     {
-        return j.root().write(os);
+        if (j) j.root().write(os);
+        return os;
     }
 
     //--------------------------------------------------------------------------
