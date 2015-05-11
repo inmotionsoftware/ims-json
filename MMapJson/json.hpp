@@ -148,6 +148,7 @@ namespace ims
 
         setter operator[] ( const char* key ) { return setter(key, *this); }
         obj add_obj( const char* key ) { return jobj_add_obj(m_obj, key); }
+        class array add_array( const char* key );
         std::ostream& write ( std::ostream& os, size_t depth = 0 ) const;
 
     protected:
@@ -199,7 +200,7 @@ namespace ims
         void add( const T& t ) { push_back(t); }
 
         template < typename T, typename... ARGS >
-        void add( const T& t, const ARGS&... args ) { add(t, args...); }
+        void add( const T& t, const ARGS&... args ) { push_back(t); add(args...); }
 
         std::ostream& write ( std::ostream& os, size_t depth = 0 ) const;
         iterator begin() const { return iterator(*this, 0); }
@@ -236,6 +237,9 @@ namespace ims
 
         jarray_t m_array;
     };
+
+    //--------------------------------------------------------------------------
+    array obj::add_array( const char* key ) { return jobj_add_array(m_obj, key); }
 
     //--------------------------------------------------------------------------
     array obj::setter::add_array() { return jobj_add_array(m_obj, m_key); }

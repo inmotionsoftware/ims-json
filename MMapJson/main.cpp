@@ -90,6 +90,31 @@ static void test_construction()
 }
 
 //------------------------------------------------------------------------------
+static void test_construction_cpp()
+{
+    json jsn;
+    auto root = jsn.root();
+    {
+        root["true"] = true;
+        root["false"] = false;
+        root["nil"] = nullptr;
+        root["num"] = 3.14;
+        root["string"] = "string";
+        root["child"].add_obj("key", "child");
+        auto array = root.add_array("array");
+        {
+            array.push_back(true);
+            array.push_back(false);
+            array.push_back(nullptr);
+            array.push_back(5.5);
+            array.push_obj().add("true", true);
+            array.push_array().add(1, 2, 3);
+        }
+    }
+    std::cout << jsn << std::endl;
+}
+
+//------------------------------------------------------------------------------
 int main(int argc, const char * argv[])
 {
 //    log_debug("starting test 'test_read'");
@@ -99,6 +124,10 @@ int main(int argc, const char * argv[])
 //    log_debug("starting 'test_construction'");
 //    double t2 = time_call(test_construction);
 //    log_debug("completed in: %f secs", t2);
+
+    log_debug("starting 'test_construction_cpp'");
+    double t3 = time_call(test_construction_cpp);
+    log_debug("completed in: %f secs", t3);
 
     auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
     if (j2)
