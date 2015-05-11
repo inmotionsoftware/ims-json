@@ -1912,7 +1912,7 @@ json_t* json_load_file( const char* path )
     printf("Parsing json using [fread] method\n");
 
     FILE* file = fopen(path, "r");
-    assert(file);
+    if (!file) return NULL;
 
     struct jread_file_t jf;
     jf.file = file;
@@ -1924,15 +1924,21 @@ json_t* json_load_file( const char* path )
     json_parse_file(jsn, &jf);
     print_mem_usage();
 
+    fclose(file);
+
 #elif READ_METHOD == ONESHOT_READ
     printf("Parsing json using [mmap] method\n");
 
     int fd = open(path, O_RDONLY);
-    assert(fd);
+    if (!fd) return NULL;
 
     struct stat st;
     int rt = fstat(fd, &st);
-    assert( rt == 0 );
+    if (rt != 0)
+    {
+        close(fd);
+        return NULL;
+    }
     size_t len = st.st_size;
 
     struct jread_mem_t mem;
@@ -1954,6 +1960,8 @@ json_t* json_load_file( const char* path )
     jbuf_destroy(&jsn->valbuf);
 
     munmap(mem.beg, len);
+
+    close(fd);
 
 #else
     #error must specify the file read method

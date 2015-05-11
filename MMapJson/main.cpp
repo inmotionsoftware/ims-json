@@ -22,6 +22,8 @@ extern "C"
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <list>
+#include <iostream>
 
 using namespace ims;
 
@@ -90,27 +92,30 @@ static void test_construction()
 //------------------------------------------------------------------------------
 int main(int argc, const char * argv[])
 {
-    log_debug("starting test 'test_read'");
-    double t1 = time_call(test_read);
-    log_debug("completed in: %f secs", t1);
+//    log_debug("starting test 'test_read'");
+//    double t1 = time_call(test_read);
+//    log_debug("completed in: %f secs", t1);
+//
+//    log_debug("starting 'test_construction'");
+//    double t2 = time_call(test_construction);
+//    log_debug("completed in: %f secs", t2);
 
-    log_debug("starting 'test_construction'");
-    double t2 = time_call(test_construction);
-    log_debug("completed in: %f secs", t2);
-
+    auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
+    if (j2)
+    {
+        std::cout << j2 << std::endl;
+    }
 
     ims::json jsn;
     obj root = jsn.root();
     root["key"] = "string";
     root["num"] = 1.25;
+    root["num"] = 10;
+    root["true"] = true;
+    root["false"] = false;
     root["array"].add_array(1, 2, 3, 4, 5, "blah");
     root["obj"].add_obj("a", 1, "b", 2);
-
-//    for ( auto it = root.beg(); it != root.end(); ++it )
-//    {
-//        auto key = it->first;
-//        auto val = it->second;
-//    }
+    std::cout << jsn << std::endl;
 
     return 0;
 }
