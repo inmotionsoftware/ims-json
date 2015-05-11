@@ -9,6 +9,8 @@
 #ifndef MMapJson_json_hpp
 #define MMapJson_json_hpp
 
+#if __cplusplus
+
 #include <string>
 #include <iostream>
 
@@ -483,4 +485,5 @@ namespace ims
     }
 }
 
-#endif
+#endif // __cplusplus
+#endif // MMapJson_json_hpp
