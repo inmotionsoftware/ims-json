@@ -1288,32 +1288,6 @@ json_t* json_new()
     return jsn;
 }
 
-////------------------------------------------------------------------------------
-//void json_parse_path( json_t* jsn, const char* path )
-//{
-//    assert(jsn);
-//    assert(path);
-//
-//    int fd = open(path, O_RDONLY);
-//    if (!fd) return;
-//
-//    struct stat st;
-//    if (fstat(fd, &st) != 0)
-//    {
-//        close(fd);
-//        return;
-//    }
-//
-//    printf("[FILE_SIZE]: %0.1f MB\n", btomb(st.st_size) );
-//
-//    void* ptr = (char*)mmap(NULL, st.st_size, PROT_READ, MAP_SHARED|MAP_NORESERVE, fd, 0);
-//    assert(ptr);
-//
-//    posix_madvise(ptr, st.st_size, POSIX_MADV_SEQUENTIAL|POSIX_MADV_WILLNEED);
-//    json_parse_buf(jsn, ptr, st.st_size);
-//    munmap(ptr, st.st_size);
-//}
-
 //------------------------------------------------------------------------------
 void json_print(json_t* jsn, FILE* f)
 {
@@ -1382,6 +1356,7 @@ jobj_t json_root(json_t* jsn)
 //------------------------------------------------------------------------------
 JINLINE void jcontext_init(jcontext_t* ctx)
 {
+    assert(ctx);
     ctx->beg = NULL;
     ctx->end = NULL;
     ctx->file = NULL;
@@ -1396,6 +1371,7 @@ JINLINE void jcontext_init(jcontext_t* ctx)
 //------------------------------------------------------------------------------
 JINLINE void jcontext_init_buf(jcontext_t* ctx, void* buf, size_t len)
 {
+    assert(buf);
     jcontext_init(ctx);
     ctx->beg = (char*)buf;
     ctx->end = ctx->beg + len;
@@ -1409,6 +1385,7 @@ JINLINE void jcontext_set_src(jcontext_t* ctx, const char* src)
         *ctx->src = '\0';
         return;
     }
+
     strncpy(ctx->src, src, sizeof(ctx->src));
     ctx->src[sizeof(ctx->src)-1] = '\0';
 }
@@ -1416,8 +1393,8 @@ JINLINE void jcontext_set_src(jcontext_t* ctx, const char* src)
 //------------------------------------------------------------------------------
 JINLINE void jcontext_init_file(jcontext_t* ctx, FILE* file)
 {
-    assert(ctx);
     assert(file);
+    jcontext_init(ctx);
     ctx->file = file;
 }
 
@@ -1978,18 +1955,13 @@ JINLINE const char* _json_load_file(json_t* jsn, const char* src, FILE* file)
     jcontext_destroy(&ctx);
 
     print_mem_usage();
+    print_memory_stats(jsn);
 
     return *ctx.buf ? strdup(ctx.buf) : NULL;
 }
 
 //------------------------------------------------------------------------------
-const char* json_load_file(json_t* jsn, FILE* file)
-{
-    return _json_load_file(jsn, "?", file);
-}
-
-//------------------------------------------------------------------------------
-const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen)
+JINLINE const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen)
 {
     assert(jsn);
     assert(buf);
@@ -2015,14 +1987,39 @@ const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen)
     jcontext_destroy(&ctx);
 
     print_mem_usage();
+    print_memory_stats(jsn);
+
     return *ctx.buf ? strdup(ctx.buf) : NULL;
+}
+
+//------------------------------------------------------------------------------
+const char* json_load_file(json_t* jsn, FILE* file)
+{
+#if __LINUX__
+    int fd = fileno(file);
+    char src[128] = "?";
+    char fdpath[128];
+    jsnprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", fd);
+    readlink(fdpath, src, sizeof(src));
+
+#elif ( defined(__APPLE__) && defined(__MACH__) )
+
+    int fd = fileno(file);
+    char src[PATH_MAX];
+    if (fcntl(fd, F_GETPATH, src) < 0)
+    {
+        strcpy(src, "?");
+    }
+#endif
+
+    return _json_load_file(jsn, src, file);
 }
 
 //------------------------------------------------------------------------------
 const char* json_load_buf(json_t* jsn, void* buf, size_t blen)
 {
     char src[128];
-    snprintf(src, sizeof(src), "%p", buf);
+    jsnprintf(src, sizeof(src), "%p", buf);
     return _json_load_buf(jsn, src, buf, blen);
 }
 
@@ -2060,86 +2057,15 @@ const char* json_load_path(json_t* jsn, const char* path)
 #else
     FILE* file = fopen(path, "r");
     if (!file) return "could not open file for read";
-    const char* err = _json_load_file(jsn, file);
+    const char* err = _json_load_file(jsn, path, file);
     fclose(file);
 #endif
 
+    print_mem_usage();
+    print_memory_stats(jsn);
+
     return err;
 }
-
-////------------------------------------------------------------------------------
-//json_t* json_load_file_err( const char* path, jerr_handler handler )
-//{
-//#if READ_METHOD == STD_READ
-//    printf("Parsing json using [fread] method\n");
-//
-//    FILE* file = fopen(path, "r");
-//    if (!file) return NULL;
-//
-//    struct jread_file_t jf;
-//    jf.file = file;
-//    jf.len = 0;
-//    jf.pos = 0;
-//
-//    json_t* jsn = json_new();
-//    print_mem_usage();
-//    if (json_parse_file(jsn, handler, &jf) != 0)
-//    {
-//        json_destroy(jsn); jsn = NULL;
-//    }
-//    print_mem_usage();
-//
-//    fclose(file);
-//
-//#elif READ_METHOD == ONESHOT_READ
-//    printf("Parsing json using [mmap] method\n");
-//
-//    int fd = open(path, O_RDONLY);
-//    if (!fd) return NULL;
-//
-//    struct stat st;
-//    int rt = fstat(fd, &st);
-//    if (rt != 0)
-//    {
-//        close(fd);
-//        return NULL;
-//    }
-//    size_t len = st.st_size;
-//
-//    struct jread_mem_t mem;
-//    mem.beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
-//    mem.end = mem.beg + len;
-//
-//    json_t* jsn = json_new();
-//
-//    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
-//    json_nums_reserve(jsn, ceilf(len*0.01));
-//    json_arrays_reserve(jsn, ceilf(len*0.01));
-//    json_objs_reserve(jsn, ceilf(len*0.01));
-//
-//    print_mem_usage();
-//    if (json_parse_file(jsn, handler, &mem) != 0)
-//    {
-//        json_destroy(jsn); jsn = NULL;
-//    }
-//    else
-//    {
-//        // clear out temp memory
-//        jbuf_destroy(&jsn->keybuf);
-//        jbuf_destroy(&jsn->valbuf);
-//    }
-//
-//    print_mem_usage();
-//    munmap(mem.beg, len);
-//    close(fd);
-//
-//#else
-//    #error must specify the file read method
-//#endif
-//
-//    print_memory_stats(jsn);
-//    return jsn;
-//}
 
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t* jsn)
