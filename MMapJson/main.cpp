@@ -30,8 +30,8 @@ using namespace ims;
 
 #define log_debug(FMT,...) printf(FMT "\n", ## __VA_ARGS__ )
 
-//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
-const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
+const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
+//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
 //const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/medium.json";
 
 //------------------------------------------------------------------------------

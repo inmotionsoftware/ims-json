@@ -43,7 +43,7 @@
 #define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
 
 #ifndef json_assert
-    #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->buf, sizeof(ctx->buf), STR, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
+    #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->buf, sizeof(ctx->buf), "%s:%zu:%zu: " STR, ctx->src, ctx->line+1, ctx->col, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
 #endif
 
 #define PRINT 1
@@ -76,10 +76,6 @@
 
 #define IO_BUF_SIZE 4096
 
-#pragma mark - function prototypes
-//------------------------------------------------------------------------------
-void print_memory_stats(json_t*);
-
 #pragma mark - structs
 
 typedef uint32_t jhash_t;
@@ -87,10 +83,15 @@ typedef uint32_t jhash_t;
 //------------------------------------------------------------------------------
 struct jcontext_t
 {
-    char* beg;
-    char* end;
+    const char* beg;
+    const char* end;
     char buf[IO_BUF_SIZE];
     FILE* file;
+
+    size_t col;
+    size_t line;
+
+    char src[128];
 
     jmp_buf jerr_jmp;
 
@@ -170,6 +171,11 @@ struct _jarray_t
     };
 };
 typedef struct _jarray_t _jarray_t;
+
+#pragma mark - function prototypes
+//------------------------------------------------------------------------------
+void print_memory_stats(json_t*);
+jval_t parse_val( json_t* jsn, jcontext_t* ctx );
 
 #pragma mark - memory
 
@@ -1371,9 +1377,61 @@ jobj_t json_root(json_t* jsn)
     return (jobj_t){jsn, 0};
 }
 
+#pragma mark - jcontext_t
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_init(jcontext_t* ctx)
+{
+    ctx->beg = NULL;
+    ctx->end = NULL;
+    ctx->file = NULL;
+    ctx->col = 0;
+    ctx->line = 0;
+    *ctx->src = '\0';
+    *ctx->buf = '\0';
+    jbuf_init(&ctx->keybuf);
+    jbuf_init(&ctx->valbuf);
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_init_buf(jcontext_t* ctx, void* buf, size_t len)
+{
+    jcontext_init(ctx);
+    ctx->beg = (char*)buf;
+    ctx->end = ctx->beg + len;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_set_src(jcontext_t* ctx, const char* src)
+{
+    if (!src)
+    {
+        *ctx->src = '\0';
+        return;
+    }
+    strncpy(ctx->src, src, sizeof(ctx->src));
+    ctx->src[sizeof(ctx->src)-1] = '\0';
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_init_file(jcontext_t* ctx, FILE* file)
+{
+    assert(ctx);
+    assert(file);
+    ctx->file = file;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_destroy(jcontext_t* ctx)
+{
+    assert(ctx);
+    jbuf_destroy(&ctx->keybuf);
+    jbuf_destroy(&ctx->valbuf);
+}
+
 #pragma mark - parse
 
-//--------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 JINLINE int jpeek( jcontext_t* ctx )
 {
     if (ctx->file && ctx->beg == ctx->end) // need to read more data from file?
@@ -1395,9 +1453,10 @@ JINLINE int jpeek( jcontext_t* ctx )
     return *ctx->beg;
 }
 
-//--------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 JINLINE int jnext( jcontext_t* ctx )
 {
+    ++ctx->col;
     ++ctx->beg;
     return jpeek(ctx);
 }
@@ -1412,9 +1471,13 @@ JINLINE void parse_whitespace( jcontext_t* ctx )
             case ' ':
             case '\t':
             case '\r':
-            case '\n':
             case '\v':
             case '\f':
+                break;
+
+            case '\n':
+                ctx->col = 0;
+                ctx->line++;
                 break;
 
             default:
@@ -1717,8 +1780,6 @@ void parse_str(jbuf_t* str, jcontext_t* ctx)
     json_assert(JFALSE, "string terminated unexpectedly");
 }
 
-jval_t parse_val( json_t* jsn, jcontext_t* ctx );
-
 //------------------------------------------------------------------------------
 void parse_array(jarray_t array, jcontext_t* ctx)
 {
@@ -1899,6 +1960,73 @@ int json_parse_file( json_t* jsn, jcontext_t* ctx )
 }
 
 //------------------------------------------------------------------------------
+JINLINE const char* _json_load_file(json_t* jsn, const char* src, FILE* file)
+{
+    assert(jsn);
+    if (!file) return "file is null";
+
+    jcontext_t ctx;
+    jcontext_init_file(&ctx, file);
+    jcontext_set_src(&ctx, src);
+
+    print_mem_usage();
+    if (json_parse_file(jsn, &ctx) != 0)
+    {
+        json_destroy(jsn); jsn = NULL;
+    }
+
+    jcontext_destroy(&ctx);
+
+    print_mem_usage();
+
+    return *ctx.buf ? strdup(ctx.buf) : NULL;
+}
+
+//------------------------------------------------------------------------------
+const char* json_load_file(json_t* jsn, FILE* file)
+{
+    return _json_load_file(jsn, "?", file);
+}
+
+//------------------------------------------------------------------------------
+const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen)
+{
+    assert(jsn);
+    assert(buf);
+
+    jcontext_t ctx;
+    jcontext_init_buf(&ctx, buf, blen);
+    jcontext_set_src(&ctx, src);
+
+    // pre-allocate data based on estimate size
+    size_t est = grow(ceilf(blen*0.01), 0);
+
+    jmap_rehash(&jsn->strmap, est);
+    json_nums_reserve(jsn, est);
+    json_arrays_reserve(jsn, est);
+    json_objs_reserve(jsn, est);
+
+    print_mem_usage();
+    if (json_parse_file(jsn, &ctx) != 0)
+    {
+        json_destroy(jsn); jsn = NULL;
+    }
+
+    jcontext_destroy(&ctx);
+
+    print_mem_usage();
+    return *ctx.buf ? strdup(ctx.buf) : NULL;
+}
+
+//------------------------------------------------------------------------------
+const char* json_load_buf(json_t* jsn, void* buf, size_t blen)
+{
+    char src[128];
+    snprintf(src, sizeof(src), "%p", buf);
+    return _json_load_buf(jsn, src, buf, blen);
+}
+
+//------------------------------------------------------------------------------
 const char* json_load_path(json_t* jsn, const char* path)
 {
     assert(jsn);
@@ -1924,7 +2052,7 @@ const char* json_load_path(json_t* jsn, const char* path)
     }
 
     void* mem = mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
-    const char* err = json_load_buf(jsn, mem, len);
+    const char* err = _json_load_buf(jsn, path, mem, len);
     munmap(mem, len);
 
     close(fd);
@@ -1932,76 +2060,11 @@ const char* json_load_path(json_t* jsn, const char* path)
 #else
     FILE* file = fopen(path, "r");
     if (!file) return "could not open file for read";
-    const char* err = json_load_file(jsn, file);
+    const char* err = _json_load_file(jsn, file);
     fclose(file);
 #endif
 
     return err;
-}
-
-//------------------------------------------------------------------------------
-const char* json_load_file(json_t* jsn, FILE* file)
-{
-    assert(jsn);
-    if (!file) return "file is null";
-
-    jcontext_t ctx;
-    ctx.file = file;
-    ctx.beg = NULL;
-    ctx.end = NULL;
-
-    jbuf_init(&ctx.keybuf);
-    jbuf_init(&ctx.valbuf);
-
-    print_mem_usage();
-    if (json_parse_file(jsn, &ctx) != 0)
-    {
-        json_destroy(jsn); jsn = NULL;
-    }
-
-    // clean up temp buffers
-    jbuf_destroy(&ctx.keybuf);
-    jbuf_destroy(&ctx.valbuf);
-
-    print_mem_usage();
-
-    return *ctx.buf ? strdup(ctx.buf) : NULL;
-}
-
-//------------------------------------------------------------------------------
-const char* json_load_buf(json_t* jsn, void* buf, size_t blen)
-{
-    assert(jsn);
-    assert(buf);
-
-    jcontext_t ctx;
-    ctx.file = NULL;
-    ctx.beg = (char*)buf;
-    ctx.end = ctx.beg + blen;
-
-    jbuf_init(&ctx.keybuf);
-    jbuf_init(&ctx.valbuf);
-
-    // pre-allocate data based on estimate size
-    size_t est = grow(ceilf(blen*0.01), 0);
-
-    jmap_rehash(&jsn->strmap, est);
-    json_nums_reserve(jsn, est);
-    json_arrays_reserve(jsn, est);
-    json_objs_reserve(jsn, est);
-
-    print_mem_usage();
-    if (json_parse_file(jsn, &ctx) != 0)
-    {
-        json_destroy(jsn); jsn = NULL;
-    }
-
-    // clean up temp buffers
-    jbuf_destroy(&ctx.keybuf);
-    jbuf_destroy(&ctx.valbuf);
-
-    print_mem_usage();
-    return *ctx.buf ? strdup(ctx.buf) : NULL;
 }
 
 ////------------------------------------------------------------------------------
