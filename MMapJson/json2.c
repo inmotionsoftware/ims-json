@@ -113,8 +113,7 @@ struct jcontext_t
 
     jmp_buf jerr_jmp;
 
-    jbuf_t keybuf; // buffer for temporarily storing the key string
-    jbuf_t valbuf; // buffer for temporarily storing the value string
+    jbuf_t strbuf; // buffer for temporarily storing the key string
 };
 typedef struct jcontext_t jcontext_t;
 
@@ -829,7 +828,8 @@ jval_t* _jobj_get_val(_jobj_t* obj, size_t idx)
 }
 
 //------------------------------------------------------------------------------
-JINLINE void jobj_add_kval( jobj_t o, const char* key, jval_t val )
+#define jobj_add_key(OBJ, KEY) jobj_add_keyl(OBJ, KEY, strlen(KEY))
+JINLINE jkv_t* jobj_add_keyl( jobj_t o, const char* key, size_t klen )
 {
     json_t* jsn = jobj_get_json(o);
     _jobj_t* obj = jobj_get_obj(o);
@@ -839,15 +839,15 @@ JINLINE void jobj_add_kval( jobj_t o, const char* key, jval_t val )
 
     _jobj_reserve(obj, 1);
     jkv_t* kv = _jobj_get_kv(obj, obj->len++);
+    kv->val.type = JTYPE_NIL;
+    kv->val.idx = 0;
 
-    size_t klen = strlen(key);
 #if PACK_KEYS
-    if (klen <= 3)
+    if (klen < sizeof(kv->kstr) )
     {
         kv->_key = 0;
-        memcpy(kv->kstr, key, klen);
-        kv->kstr[klen] = '\0';
-        val.type |= ~JTYPE_MASK;
+        strncpy(kv->kstr, key, sizeof(kv->kstr));
+        kv->val.type |= ~JTYPE_MASK;
     }
     else
 #endif
@@ -856,7 +856,16 @@ JINLINE void jobj_add_kval( jobj_t o, const char* key, jval_t val )
         assert (kidx < MAX_KEY_IDX);
         kv->_key = (uint32_t)kidx;
     }
-    kv->val = val;
+    return kv;
+}
+
+//------------------------------------------------------------------------------
+#define jobj_add_kval(OBJ,KEY,VAL) jkv_set_val(jobj_add_key(OBJ, KEY), VAL)
+JINLINE void jkv_set_val(jkv_t* kv, jval_t val )
+{
+    assert(kv);
+    kv->val.type = (kv->val.type & ~JTYPE_MASK) | (val.type & JTYPE_MASK);
+    kv->val.idx = val.idx;
 }
 
 //------------------------------------------------------------------------------
@@ -864,7 +873,7 @@ JINLINE void jobj_add_kv(jobj_t obj, const char* key, uint32_t type, size_t idx)
 {
     assert(idx < MAX_VAL_IDX /* 2^28 */);
     assert((type & ~JTYPE_MASK) == 0);
-    jobj_add_kval(obj, key, (jval_t){type, (uint32_t)idx});
+    jobj_add_kval(obj, key, ((jval_t){type, (uint32_t)idx}));
 }
 
 //------------------------------------------------------------------------------
@@ -1324,8 +1333,7 @@ JINLINE void jcontext_init(jcontext_t* ctx)
     ctx->line = 0;
     *ctx->src = '\0';
     *ctx->buf = '\0';
-    jbuf_init(&ctx->keybuf);
-    jbuf_init(&ctx->valbuf);
+    jbuf_init(&ctx->strbuf);
 }
 
 //------------------------------------------------------------------------------
@@ -1362,8 +1370,7 @@ JINLINE void jcontext_init_file(jcontext_t* ctx, FILE* file)
 JINLINE void jcontext_destroy(jcontext_t* ctx)
 {
     assert(ctx);
-    jbuf_destroy(&ctx->keybuf);
-    jbuf_destroy(&ctx->valbuf);
+    jbuf_destroy(&ctx->strbuf);
 }
 
 #pragma mark - parse
@@ -1763,15 +1770,16 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
         parse_whitespace(ctx);
 
         // get the key
-        parse_str(&ctx->keybuf, ctx);
-        const char* key = ctx->keybuf.ptr;
+        parse_str(&ctx->strbuf, ctx);
+        const char* key = ctx->strbuf.ptr;
+
+        jkv_t* kv = jobj_add_keyl(obj, key, ctx->strbuf.len);
 
         parse_whitespace(ctx);
         json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
         parse_whitespace(ctx);
 
-        jval_t val = parse_val(jsn, ctx);
-        jobj_add_kval(obj, key, val);
+        jkv_set_val(kv, parse_val(jsn, ctx));
 
         parse_whitespace(ctx);
 
@@ -1815,7 +1823,7 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
 
         case '"': // string
         {
-            jbuf_t* buf = &ctx->valbuf;
+            jbuf_t* buf = &ctx->strbuf;
             parse_str(buf, ctx);
             return (jval_t){JTYPE_STR, (uint32_t)json_add_strl(jsn, buf->ptr, buf->len)};
         }
