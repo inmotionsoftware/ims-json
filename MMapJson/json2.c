@@ -569,6 +569,7 @@ void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f )
             break;
 
         default:
+            assert(JFALSE); // unknown type!!!
             break;
     }
 }
@@ -606,7 +607,6 @@ JINLINE size_t json_add_obj( json_t* jsn )
     assert(obj);
     obj->cap = BUF_SIZE;
     obj->len = 0;
-//    obj->idx = (jsize_t)idx;
     return idx;
 }
 
@@ -637,9 +637,9 @@ JINLINE size_t json_add_array( json_t* jsn )
 
     size_t idx = jsn->arrays.len++;
     _jarray_t* array = _json_get_array(jsn, idx);
+    assert(array);
     array->cap = BUF_SIZE;
     array->len = 0;
-//    array->idx = (jsize_t)idx;
     return idx;
 }
 
