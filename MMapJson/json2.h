@@ -28,7 +28,6 @@ typedef uint32_t jsize_t;
 struct jstr_t;
 struct _jobj_t;
 struct _jarray_t;
-struct jlist_t;
 struct json_t;
 
 //------------------------------------------------------------------------------
@@ -72,6 +71,7 @@ struct jobj_t
 };
 typedef struct jobj_t jobj_t;
 
+void jobj_reserve( jobj_t obj, size_t cap );
 void jobj_add_num( jobj_t obj, const char* key, jnum_t num );
 void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen );
 void jobj_add_bool( jobj_t obj, const char* key, jbool_t b );
@@ -94,6 +94,7 @@ struct jarray_t
 };
 typedef struct jarray_t jarray_t;
 
+void jarray_reserve( jarray_t a, size_t cap );
 jarray_t jobj_add_array( jobj_t obj, const char* key );
 void jarray_add_num( jarray_t a, jnum_t num );
 void jarray_add_strl( jarray_t a, const char* str, size_t slen );
@@ -111,15 +112,6 @@ void jarray_print( jarray_t array, size_t depth, FILE* f );
 #define jarray_get_num(A, IDX) json_get_num(jarray_get_json(A), jarray_get(A, IDX))
 
 //------------------------------------------------------------------------------
-struct jbuf_t
-{
-    size_t cap;
-    size_t len;
-    char* ptr;
-};
-typedef struct jbuf_t jbuf_t;
-
-//------------------------------------------------------------------------------
 struct jmap_t
 {
     size_t blen;
@@ -135,24 +127,35 @@ typedef struct jmap_t jmap_t;
 //------------------------------------------------------------------------------
 struct json_t
 {
-    // objs
-    size_t nums_len;
-    size_t nums_cap;
-    jnum_t* nums;
+    struct
+    {
+        size_t len;
+        size_t cap;
+        jnum_t* ptr;
+    } nums;
 
-    struct jlist_t* objs;
-    struct jlist_t* arrays;
+    struct
+    {
+        size_t len;
+        size_t cap;
+        struct _jobj_t* ptr;
+    } objs;
+
+    struct
+    {
+        size_t len;
+        size_t cap;
+        struct _jarray_t* ptr;
+    } arrays;
 
     jmap_t strmap;
 };
 typedef struct json_t json_t;
 
 json_t* json_new();
-
 const char* json_load_path(json_t* jsn, const char* path);
 const char* json_load_file(json_t* jsn, FILE* file);
 const char* json_load_buf(json_t* jsn, void* buf, size_t blen);
-
 void json_print(json_t* j, FILE*);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
