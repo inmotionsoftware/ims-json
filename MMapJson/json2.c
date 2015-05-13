@@ -13,12 +13,22 @@
 #include <limits.h>
 #include <stddef.h>
 #include <assert.h>
-#include <sys/mman.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/resource.h>
+#include <setjmp.h>
+
+#if defined(__unix__) || ( defined(__APPLE__) && defined(__MACH__) )
+    #define JPOSIX (1)
+#else
+    #define JPOSIX (0)
+#endif
+
+#if JPOSIX
+    #include <sys/mman.h>
+    #include <sys/types.h>
+    #include <sys/stat.h>
+    #include <unistd.h>
+    #include <fcntl.h>
+    #include <sys/resource.h>
+#endif
 
 #pragma mark - macros
 
@@ -30,8 +40,10 @@
     #define MIN(A,B) (A)<(B)?(A):(B)
 #endif
 
+#define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
+
 #ifndef json_assert
-    #define json_assert(A, STR, ...) { if (!(A)) {printf(STR "\n", ## __VA_ARGS__ ); abort();} }
+    #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->buf, sizeof(ctx->buf), STR, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
 #endif
 
 #define PRINT 1
@@ -39,19 +51,6 @@
     #define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
 #else
     #define json_fprintf(F, FMT, ...)
-#endif
-
-#define STD_READ        0x1
-#define ONESHOT_READ    0x2
-#define PRINT_MEMORY    1
-#define READ_METHOD     ONESHOT_READ
-
-#if READ_METHOD == STD_READ
-    #define jpeek jpeek_FILE
-    #define jnext jnext_FILE
-#elif READ_METHOD == ONESHOT_READ
-    #define jpeek jpeek_MEM
-    #define jnext jnext_MEM
 #endif
 
 #pragma mark - constants
@@ -75,6 +74,8 @@
 #define JTRUE 1
 #define JFALSE 0
 
+#define IO_BUF_SIZE 4096
+
 #pragma mark - function prototypes
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t*);
@@ -82,6 +83,21 @@ void print_memory_stats(json_t*);
 #pragma mark - structs
 
 typedef uint32_t jhash_t;
+
+//------------------------------------------------------------------------------
+struct jcontext_t
+{
+    char* beg;
+    char* end;
+    char buf[IO_BUF_SIZE];
+    FILE* file;
+
+    jmp_buf jerr_jmp;
+
+    jbuf_t keybuf; // buffer for temporarily storing the key string
+    jbuf_t valbuf; // buffer for temporarily storing the value string
+};
+typedef struct jcontext_t jcontext_t;
 
 //------------------------------------------------------------------------------
 struct jmapbucket_t
@@ -190,6 +206,13 @@ JINLINE void* jrealloc( void* ptr, size_t s )
 }
 
 #pragma mark - util
+
+//------------------------------------------------------------------------------
+void json_err_handler( const char* err )
+{
+    puts(err);
+    abort();
+}
 
 //------------------------------------------------------------------------------
 JINLINE void print_tabs( size_t cnt, FILE* f)
@@ -1254,9 +1277,6 @@ json_t* json_new()
     jsn->arrays = NULL;
     jsn->objs = NULL;
 
-    jbuf_init(&jsn->keybuf);
-    jbuf_init(&jsn->valbuf);
-
     size_t idx = json_add_obj(jsn);
     assert(idx == 0);
     return jsn;
@@ -1335,10 +1355,6 @@ void json_destroy(json_t* jsn)
         }
         jfree(jsn->arrays); jsn->arrays = NULL;
     }
-
-    // cleanup the buffers
-    jbuf_destroy(&jsn->keybuf);
-    jbuf_destroy(&jsn->valbuf);
 }
 
 //------------------------------------------------------------------------------
@@ -1358,64 +1374,36 @@ jobj_t json_root(json_t* jsn)
 #pragma mark - parse
 
 //--------------------------------------------------------------------------
-struct jread_mem_t
+JINLINE int jpeek( jcontext_t* ctx )
 {
-    char* beg;
-    char* end;
-};
+    if (ctx->file && ctx->beg == ctx->end) // need to read more data from file?
+    {
+        // read file into buffer
+        size_t len = fread(ctx->buf, 1, IO_BUF_SIZE, ctx->file);
+        if (len == 0 && feof(ctx->file) != 0)
+        {
+            json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", strerror(errno));
+        }
+        ctx->beg = ctx->buf;
+        ctx->end = ctx->beg + len;
+    }
 
-//--------------------------------------------------------------------------
-JINLINE int jpeek_MEM( void* ctx )
-{
-    struct jread_mem_t* file = (struct jread_mem_t*)ctx;
-    if (file->beg == file->end) return EOF;
-    return *file->beg;
-}
-
-//--------------------------------------------------------------------------
-JINLINE int jnext_MEM( void* ctx )
-{
-    struct jread_mem_t* file = (struct jread_mem_t*)ctx;
-    return *++file->beg;
-}
-
-//--------------------------------------------------------------------------
-#define IO_BUF_SIZE 4096
-struct jread_file_t
-{
-    FILE* file;
-    char buf[IO_BUF_SIZE];
-    size_t pos;
-    size_t len;
-};
-
-//--------------------------------------------------------------------------
-JINLINE int jpeek_FILE( void* ctx )
-{
-    struct jread_file_t* f = (struct jread_file_t*)ctx;
-    if (f->len == SIZE_T_MAX)
+    if (ctx->beg == ctx->end)
     {
         return EOF;
     }
-
-    if (f->pos >= f->len)
-    {
-        f->len = fread(f->buf, 1, IO_BUF_SIZE, f->file);
-        f->pos = 0;
-    }
-    return f->buf[f->pos];
+    return *ctx->beg;
 }
 
 //--------------------------------------------------------------------------
-JINLINE int jnext_FILE( void* ctx )
+JINLINE int jnext( jcontext_t* ctx )
 {
-    struct jread_file_t* f = (struct jread_file_t*)ctx;
-    ++f->pos;
-    return jpeek_FILE(ctx);
+    ++ctx->beg;
+    return jpeek(ctx);
 }
 
 //------------------------------------------------------------------------------
-JINLINE void parse_whitespace( void* ctx )
+JINLINE void parse_whitespace( jcontext_t* ctx )
 {
     for ( int ch = jpeek(ctx); ch >= 0; ch = jnext(ctx) )
     {
@@ -1436,7 +1424,7 @@ JINLINE void parse_whitespace( void* ctx )
 }
 
 //------------------------------------------------------------------------------
-JINLINE unsigned char char_to_hex(int ch)
+JINLINE unsigned char char_to_hex(jcontext_t* ctx, int ch)
 {
     switch (ch)
     {
@@ -1468,7 +1456,7 @@ JINLINE unsigned char char_to_hex(int ch)
 }
 
 //------------------------------------------------------------------------------
-JINLINE void utf8_encode(int32_t codepoint, jbuf_t* str )
+JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
 {
     json_assert(codepoint > 0, "invalid unicode: %d", codepoint);
     if(codepoint < 0x80)
@@ -1500,17 +1488,17 @@ JINLINE void utf8_encode(int32_t codepoint, jbuf_t* str )
 }
 
 //------------------------------------------------------------------------------
-JINLINE void parse_literal(json_t* jsn, void* f, const char* str)
+JINLINE void parse_literal(json_t* jsn, jcontext_t* ctx, const char* str)
 {
-    int ch = ch = jnext(f);
-    for ( const char* s = ++str; *s; s++, ch = jnext(f))
+    int ch = ch = jnext(ctx);
+    for ( const char* s = ++str; *s; s++, ch = jnext(ctx))
     {
         json_assert(ch == *s, "expected string literal: '%s'", str);
     }
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_sign( void* ctx )
+JINLINE jnum_t parse_sign( jcontext_t* ctx )
 {
     int ch = jpeek(ctx);
     switch (ch)
@@ -1529,7 +1517,7 @@ JINLINE jnum_t parse_sign( void* ctx )
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_digitsp( void* ctx, size_t* places)
+JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
 {
     jnum_t num = 0;
     for ( int ch = jpeek(ctx), cnt = 0; ch >= 0; ch = jnext(ctx), ++cnt )
@@ -1564,14 +1552,14 @@ JINLINE jnum_t parse_digitsp( void* ctx, size_t* places)
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_digits( void* ctx )
+JINLINE jnum_t parse_digits( jcontext_t* ctx )
 {
     size_t places = 0;
     return parse_digitsp(ctx, &places);
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_num( void* ctx )
+JINLINE jnum_t parse_num( jcontext_t* ctx )
 {
     // +/-
     jnum_t sign = parse_sign(ctx);
@@ -1617,46 +1605,46 @@ JINLINE jnum_t parse_num( void* ctx )
 }
 
 //------------------------------------------------------------------------------
-JINLINE unsigned int parse_unicode_hex(void* f)
+JINLINE unsigned int parse_unicode_hex(jcontext_t* ctx)
 {
-    return char_to_hex(jpeek(f)) << 12 |
-           char_to_hex(jnext(f)) << 8 |
-           char_to_hex(jnext(f)) << 4 |
-           char_to_hex(jnext(f));
+    return char_to_hex(ctx, jpeek(ctx)) << 12 |
+           char_to_hex(ctx, jnext(ctx)) << 8 |
+           char_to_hex(ctx, jnext(ctx)) << 4 |
+           char_to_hex(ctx, jnext(ctx));
 }
 
 //------------------------------------------------------------------------------
-JINLINE void parse_unicode2( jbuf_t* str, void* f )
+JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
 {
     // U+XXXX
-    unsigned int val = parse_unicode_hex(f);
+    unsigned int val = parse_unicode_hex(ctx);
 //    json_error(val > 0, is, "\\u0000 is not allowed");
 
     // surrogate pair, \uXXXX\uXXXXX
     if (0xD800 <= val && val <= 0xDBFF)
     {
-        json_assert(jnext(f) == '\\', "invalid unicode");
-        json_assert(jnext(f) == 'u', "invalid unicode");
+        json_assert(jnext(ctx) == '\\', "invalid unicode");
+        json_assert(jnext(ctx) == 'u', "invalid unicode");
 
         // read the surrogate pair from the stream
-        unsigned int val2 = parse_unicode_hex(f);
+        unsigned int val2 = parse_unicode_hex(ctx);
 
         // validate the value
         json_assert(val2 < 0xDC00 || val2 > 0xDFFF, "invalid unicode");
         unsigned int unicode = ((val - 0xD800) << 10) + (val2 - 0xDC00) + 0x10000;
-        utf8_encode(unicode, str);
+        utf8_encode(ctx, unicode, str);
         return;
     }
 
     json_assert(0xDC00 > val || val > 0xDFFF, "invalid unicode");
-    utf8_encode(val, str);
+    utf8_encode(ctx, val, str);
 }
 
 //------------------------------------------------------------------------------
-void parse_str(jbuf_t* str, void* ctx)
+void parse_str(jbuf_t* str, jcontext_t* ctx)
 {
     int prev = jpeek(ctx);
-    json_assert(prev == '"', "valid strings must start with a '\"' character");
+    json_assert(prev == '"', "Expected a String, found: '%c'", prev);
 
     jbuf_clear(str);
 
@@ -1729,12 +1717,13 @@ void parse_str(jbuf_t* str, void* ctx)
     json_assert(JFALSE, "string terminated unexpectedly");
 }
 
-jval_t parse_val( json_t* jsn, void* f );
+jval_t parse_val( json_t* jsn, jcontext_t* ctx );
 
 //------------------------------------------------------------------------------
-void parse_array(jarray_t array, void* ctx)
+void parse_array(jarray_t array, jcontext_t* ctx)
 {
-    json_assert(jpeek(ctx) == '[', ""); jnext(ctx);
+    int prev = jpeek(ctx); jnext(ctx);
+    json_assert(prev == '[', "Expected an array, found: '%c'", prev);
     json_t* jsn = array.json;
 
     while ( JTRUE )
@@ -1764,9 +1753,10 @@ void parse_array(jarray_t array, void* ctx)
 }
 
 //------------------------------------------------------------------------------
-void parse_obj(jobj_t obj, void* ctx)
+void parse_obj(jobj_t obj, jcontext_t* ctx)
 {
-    json_assert(jpeek(ctx) == '{', ""); jnext(ctx);
+    int prev = jpeek(ctx); jnext(ctx);
+    json_assert(prev == '{', "Expected an object, found: '%c'", prev);
     json_t* jsn = obj.json;
 
     while ( JTRUE )
@@ -1774,8 +1764,8 @@ void parse_obj(jobj_t obj, void* ctx)
         parse_whitespace(ctx);
 
         // get the key
-        parse_str(&jsn->keybuf, ctx);
-        const char* key = jsn->keybuf.ptr;
+        parse_str(&ctx->keybuf, ctx);
+        const char* key = ctx->keybuf.ptr;
 
         parse_whitespace(ctx);
         json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
@@ -1804,42 +1794,42 @@ void parse_obj(jobj_t obj, void* ctx)
 }
 
 //------------------------------------------------------------------------------
-jval_t parse_val( json_t* jsn, void* f )
+jval_t parse_val( json_t* jsn, jcontext_t* ctx )
 {
-    int ch = jpeek(f);
+    int ch = jpeek(ctx);
     switch(ch)
     {
         case '{': // obj
         {
             size_t idx = json_add_obj(jsn);
-            parse_obj((jobj_t){jsn, idx}, f);
+            parse_obj((jobj_t){jsn, idx}, ctx);
             return (jval_t){JTYPE_OBJ, (uint32_t)idx};
         }
 
         case '[': // array
         {
             size_t idx = json_add_array(jsn);
-            parse_array((jarray_t){jsn, idx}, f);
+            parse_array((jarray_t){jsn, idx}, ctx);
             return (jval_t){JTYPE_ARRAY, (uint32_t)idx};
         }
 
         case '"': // string
         {
-            jbuf_t* buf = &jsn->valbuf;
-            parse_str(buf, f);
+            jbuf_t* buf = &ctx->valbuf;
+            parse_str(buf, ctx);
             return (jval_t){JTYPE_STR, (uint32_t)json_add_strl(jsn, buf->ptr, buf->len)};
         }
 
         case 't': // true
-            parse_literal(jsn, f, "true");
+            parse_literal(jsn, ctx, "true");
             return (jval_t){JTYPE_TRUE, 0};
 
         case 'f': // false
-            parse_literal(jsn, f, "false");
+            parse_literal(jsn, ctx, "false");
             return (jval_t){JTYPE_FALSE, 0};
 
         case 'n': // null
-            parse_literal(jsn, f, "null");
+            parse_literal(jsn, ctx, "null");
             return (jval_t){JTYPE_NIL, 0};
 
         case '-': // number
@@ -1854,7 +1844,7 @@ jval_t parse_val( json_t* jsn, void* f )
         case '8':
         case '9':
         {
-            jnum_t num = parse_num(f);
+            jnum_t num = parse_num(ctx);
             return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
         }
 
@@ -1884,99 +1874,214 @@ void print_mem_usage()
 }
 
 //------------------------------------------------------------------------------
-void json_parse_file( json_t* jsn, void* ctx )
+int json_parse_file( json_t* jsn, jcontext_t* ctx )
 {
-    print_mem_usage();
-
     assert(jsn);
     assert(ctx);
 
-    int ch = jpeek(ctx);
-    switch (ch)
+    if (setjmp(ctx->jerr_jmp) == 0)
     {
-        case '{':
-            parse_obj(json_root(jsn), ctx);
-            break;
+        int ch = jpeek(ctx);
+        switch (ch)
+        {
+            case '{':
+                parse_obj(json_root(jsn), ctx);
+                break;
 
-        default:
-            break;
+            default:
+                break;
+        }
+        ctx->buf[0] = '\0';
+        return EXIT_SUCCESS;
     }
 
-    print_mem_usage();
+    return EXIT_FAILURE;
 }
 
 //------------------------------------------------------------------------------
-json_t* json_load_file( const char* path )
+const char* json_load_path(json_t* jsn, const char* path)
 {
-#if READ_METHOD == STD_READ
-    printf("Parsing json using [fread] method\n");
+    assert(jsn);
+    assert(path);
 
-    FILE* file = fopen(path, "r");
-    if (!file) return NULL;
-
-    struct jread_file_t jf;
-    jf.file = file;
-    jf.len = 0;
-    jf.pos = 0;
-
-    json_t* jsn = json_new();
-    print_mem_usage();
-    json_parse_file(jsn, &jf);
-    print_mem_usage();
-
-    fclose(file);
-
-#elif READ_METHOD == ONESHOT_READ
-    printf("Parsing json using [mmap] method\n");
-
+#if JPOSIX
     int fd = open(path, O_RDONLY);
-    if (!fd) return NULL;
+    if (!fd) return "could not read file";
 
     struct stat st;
     int rt = fstat(fd, &st);
     if (rt != 0)
     {
         close(fd);
-        return NULL;
+        return "could not read file";
     }
+
     size_t len = st.st_size;
+    if (len == 0)
+    {
+        close(fd);
+        return "could not parse empty file";
+    }
 
-    struct jread_mem_t mem;
-    mem.beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
-    mem.end = mem.beg + len;
-
-    json_t* jsn = json_new();
-
-    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
-    json_nums_reserve(jsn, ceilf(len*0.01));
-    json_arrays_reserve(jsn, ceilf(len*0.01));
-    json_objs_reserve(jsn, ceilf(len*0.01));
-
-    print_mem_usage();
-    json_parse_file(jsn, &mem);
-    print_mem_usage();
-
-    jbuf_destroy(&jsn->keybuf);
-    jbuf_destroy(&jsn->valbuf);
-
-    munmap(mem.beg, len);
+    void* mem = mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
+    const char* err = json_load_buf(jsn, mem, len);
+    munmap(mem, len);
 
     close(fd);
 
 #else
-    #error must specify the file read method
+    FILE* file = fopen(path, "r");
+    if (!file) return "could not open file for read";
+    const char* err = json_load_file(jsn, file);
+    fclose(file);
 #endif
 
-
-#if PRINT_MEMORY
-    print_memory_stats(jsn);
-#endif
-    return jsn;
+    return err;
 }
+
+//------------------------------------------------------------------------------
+const char* json_load_file(json_t* jsn, FILE* file)
+{
+    assert(jsn);
+    if (!file) return "file is null";
+
+    jcontext_t ctx;
+    ctx.file = file;
+    ctx.beg = NULL;
+    ctx.end = NULL;
+
+    jbuf_init(&ctx.keybuf);
+    jbuf_init(&ctx.valbuf);
+
+    print_mem_usage();
+    if (json_parse_file(jsn, &ctx) != 0)
+    {
+        json_destroy(jsn); jsn = NULL;
+    }
+
+    // clean up temp buffers
+    jbuf_destroy(&ctx.keybuf);
+    jbuf_destroy(&ctx.valbuf);
+
+    print_mem_usage();
+
+    return *ctx.buf ? strdup(ctx.buf) : NULL;
+}
+
+//------------------------------------------------------------------------------
+const char* json_load_buf(json_t* jsn, void* buf, size_t blen)
+{
+    assert(jsn);
+    assert(buf);
+
+    jcontext_t ctx;
+    ctx.file = NULL;
+    ctx.beg = (char*)buf;
+    ctx.end = ctx.beg + blen;
+
+    jbuf_init(&ctx.keybuf);
+    jbuf_init(&ctx.valbuf);
+
+    // pre-allocate data based on estimate size
+    size_t est = grow(ceilf(blen*0.01), 0);
+
+    jmap_rehash(&jsn->strmap, est);
+    json_nums_reserve(jsn, est);
+    json_arrays_reserve(jsn, est);
+    json_objs_reserve(jsn, est);
+
+    print_mem_usage();
+    if (json_parse_file(jsn, &ctx) != 0)
+    {
+        json_destroy(jsn); jsn = NULL;
+    }
+
+    // clean up temp buffers
+    jbuf_destroy(&ctx.keybuf);
+    jbuf_destroy(&ctx.valbuf);
+
+    print_mem_usage();
+    return *ctx.buf ? strdup(ctx.buf) : NULL;
+}
+
+////------------------------------------------------------------------------------
+//json_t* json_load_file_err( const char* path, jerr_handler handler )
+//{
+//#if READ_METHOD == STD_READ
+//    printf("Parsing json using [fread] method\n");
+//
+//    FILE* file = fopen(path, "r");
+//    if (!file) return NULL;
+//
+//    struct jread_file_t jf;
+//    jf.file = file;
+//    jf.len = 0;
+//    jf.pos = 0;
+//
+//    json_t* jsn = json_new();
+//    print_mem_usage();
+//    if (json_parse_file(jsn, handler, &jf) != 0)
+//    {
+//        json_destroy(jsn); jsn = NULL;
+//    }
+//    print_mem_usage();
+//
+//    fclose(file);
+//
+//#elif READ_METHOD == ONESHOT_READ
+//    printf("Parsing json using [mmap] method\n");
+//
+//    int fd = open(path, O_RDONLY);
+//    if (!fd) return NULL;
+//
+//    struct stat st;
+//    int rt = fstat(fd, &st);
+//    if (rt != 0)
+//    {
+//        close(fd);
+//        return NULL;
+//    }
+//    size_t len = st.st_size;
+//
+//    struct jread_mem_t mem;
+//    mem.beg = (char*)mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
+//    mem.end = mem.beg + len;
+//
+//    json_t* jsn = json_new();
+//
+//    jmap_rehash(&jsn->strmap, ceilf(len*0.01));
+//    json_nums_reserve(jsn, ceilf(len*0.01));
+//    json_arrays_reserve(jsn, ceilf(len*0.01));
+//    json_objs_reserve(jsn, ceilf(len*0.01));
+//
+//    print_mem_usage();
+//    if (json_parse_file(jsn, handler, &mem) != 0)
+//    {
+//        json_destroy(jsn); jsn = NULL;
+//    }
+//    else
+//    {
+//        // clear out temp memory
+//        jbuf_destroy(&jsn->keybuf);
+//        jbuf_destroy(&jsn->valbuf);
+//    }
+//
+//    print_mem_usage();
+//    munmap(mem.beg, len);
+//    close(fd);
+//
+//#else
+//    #error must specify the file read method
+//#endif
+//
+//    print_memory_stats(jsn);
+//    return jsn;
+//}
 
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t* jsn)
 {
+#if PRINT_MEMORY
     size_t total = 0;
     size_t total_reserve = 0;
 
@@ -2071,4 +2176,5 @@ void print_memory_stats(json_t* jsn)
 
     printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
     print_mem_usage();
+#endif
 }

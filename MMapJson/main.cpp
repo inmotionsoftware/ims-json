@@ -13,6 +13,7 @@ extern "C"
     #include "json2.h"
 }
 
+#include "json.h"
 #include "json.hpp"
 
 #include <math.h>
@@ -29,6 +30,10 @@ using namespace ims;
 
 #define log_debug(FMT,...) printf(FMT "\n", ## __VA_ARGS__ )
 
+//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
+const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
+//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/medium.json";
+
 //------------------------------------------------------------------------------
 template < typename F >
 double time_call( F func )
@@ -42,13 +47,19 @@ double time_call( F func )
 //------------------------------------------------------------------------------
 static void test_read()
 {
-//    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
-    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
-//    const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/medium.json";
+    json_t* jsn = json_new();
+    const char *err = json_load_path(jsn, path);
+    if (err)
+    {
+        puts(err);
+        abort();
+    }
 
-    json_t* jsn = json_load_file(path);
     assert(jsn);
-//    json_print(jsn, stdout);
+    if (jsn->strmap.slen < 50)
+    {
+        json_print(jsn, stdout);
+    }
     json_free(jsn); jsn = NULL;
 }
 
@@ -92,7 +103,7 @@ static void test_construction()
 //------------------------------------------------------------------------------
 static void test_construction_cpp()
 {
-    json jsn;
+    ims::json jsn;
     auto root = jsn.root();
     {
         root["true"] = true;
@@ -117,34 +128,43 @@ static void test_construction_cpp()
 //------------------------------------------------------------------------------
 int main(int argc, const char * argv[])
 {
-//    log_debug("starting test 'test_read'");
-//    double t1 = time_call(test_read);
-//    log_debug("completed in: %f secs", t1);
-//
+    log_debug("starting test 'test_read'");
+    double t1 = time_call(test_read);
+    log_debug("completed in: %f secs", t1);
+
+//    log_debug("starting test 'read c++'");
+//    double t4 = time_call([]()
+//    {
+//        auto j = ims::json::from_file(path);
+////        auto j = ::json::load_file2(path);
+//    });
+//    log_debug("completed in: %f secs", t4);
+
+
 //    log_debug("starting 'test_construction'");
 //    double t2 = time_call(test_construction);
 //    log_debug("completed in: %f secs", t2);
+//
+//    log_debug("starting 'test_construction_cpp'");
+//    double t3 = time_call(test_construction_cpp);
+//    log_debug("completed in: %f secs", t3);
 
-    log_debug("starting 'test_construction_cpp'");
-    double t3 = time_call(test_construction_cpp);
-    log_debug("completed in: %f secs", t3);
-
-    auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
-    if (j2)
-    {
-        std::cout << j2 << std::endl;
-    }
-
-    ims::json jsn;
-    obj root = jsn.root();
-    root["key"] = "string";
-    root["num"] = 1.25;
-    root["num"] = 10;
-    root["true"] = true;
-    root["false"] = false;
-    root["array"].add_array(1, 2, 3, 4, 5, "blah");
-    root["obj"].add_obj("a", 1, "b", 2);
-    std::cout << jsn << std::endl;
+//    auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
+//    if (j2)
+//    {
+//        std::cout << j2 << std::endl;
+//    }
+//
+//    ims::json jsn;
+//    obj root = jsn.root();
+//    root["key"] = "string";
+//    root["num"] = 1.25;
+//    root["num"] = 10;
+//    root["true"] = true;
+//    root["false"] = false;
+//    root["array"].add_array(1, 2, 3, 4, 5, "blah");
+//    root["obj"].add_obj("a", 1, "b", 2);
+//    std::cout << jsn << std::endl;
 
     return 0;
 }

@@ -278,7 +278,14 @@ namespace ims
     public:
         static json from_file( const std::string& path )
         {
-            return json(json_load_file(path.c_str()));
+            // Error handling uses C++ style exceptions
+            json_t* jsn = json_new();
+            const char* err = json_load_path(jsn, path.c_str());
+            if (err)
+            {
+                throw std::runtime_error(err);
+            }
+            return json(jsn);
         }
 
         json()

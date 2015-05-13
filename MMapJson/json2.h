@@ -144,18 +144,18 @@ struct json_t
     struct jlist_t* arrays;
 
     jmap_t strmap;
-
-    jbuf_t keybuf; // buffer for temporarily storing the key string
-    jbuf_t valbuf; // buffer for temporarily storing the value string
 };
 typedef struct json_t json_t;
 
 json_t* json_new();
-json_t* json_load_file( const char* path );
+
+const char* json_load_path(json_t* jsn, const char* path);
+const char* json_load_file(json_t* jsn, FILE* file);
+const char* json_load_buf(json_t* jsn, void* buf, size_t blen);
+
 void json_print(json_t* j, FILE*);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
-
 const char* json_get_str( json_t* jsn, jval_t val );
 jnum_t json_get_num( json_t* jsn, jval_t val );
 jbool_t json_get_bool( json_t* jsn, jval_t val );
