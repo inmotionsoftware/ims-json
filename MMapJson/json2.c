@@ -213,6 +213,7 @@ JINLINE void* jmalloc( size_t s )
 JINLINE void* jrealloc( void* ptr, size_t s )
 {
     void* rt = realloc(ptr, s);
+    if (!rt) free(ptr);
     assert(rt);
     return rt;
 }
@@ -398,11 +399,11 @@ JINLINE void jmap_reserve_str( jmap_t* map, size_t len )
     assert(map);
 
     // not found, create a new one
-    if (map->slen+len >= map->scap)
-    {
-        map->scap = grow(map->slen+len, map->scap);
-        map->strs = (jstr_t*)jrealloc(map->strs, sizeof(jstr_t)*map->scap);
-    }
+    if (map->slen+len <= map->scap)
+        return;
+
+    map->scap = grow(map->slen+len, map->scap);
+    map->strs = (jstr_t*)jrealloc(map->strs, sizeof(jstr_t)*map->scap);
 }
 
 //------------------------------------------------------------------------------
@@ -420,18 +421,16 @@ JINLINE size_t _jmap_add_str(jmap_t* map, const char* cstr, size_t len, uint32_t
 }
 
 //------------------------------------------------------------------------------
-JINLINE void jmap_bucket_reserve( jmap_t* map, size_t idx, size_t len )
+JINLINE void jmap_bucket_reserve( jmapbucket_t* bucket, size_t len )
 {
-    assert(map);
-    assert(idx < map->bcap);
+    assert(bucket);
 
-    jmapbucket_t* bucket = &map->buckets[idx];
-    if ( bucket->len+len >= bucket->cap )
-    {
-        if (!bucket->slots) map->blen++; // empty bucket, we are about to add it, increment
-        bucket->cap = grow(bucket->len+len, bucket->cap);
-        bucket->slots = (size_t*)jrealloc( bucket->slots, sizeof(size_t) * bucket->cap );
-    }
+    if ( bucket->len+len <= bucket->cap )
+        return;
+
+    // grow bucket now
+    bucket->cap = grow(bucket->len+len, bucket->cap);
+    bucket->slots = (size_t*)jrealloc( bucket->slots, sizeof(size_t) * bucket->cap );
 }
 
 //------------------------------------------------------------------------------
@@ -441,9 +440,11 @@ JINLINE void _jmap_add_key(jmap_t* map, uint32_t hash, size_t val)
     assert(map->buckets);
     assert(map->bcap > 0);
 
-    size_t idx = hash % map->bcap;
-    jmap_bucket_reserve(map, idx, 1);
-    jmapbucket_t* bucket = &map->buckets[idx];
+    jmapbucket_t* bucket = &map->buckets[hash % map->bcap];
+    jmap_bucket_reserve(bucket, 1);
+    assert(bucket->slots);
+
+    if (!bucket->len == 0) map->blen++; // empty bucket, we are about to add it, increment
     bucket->slots[bucket->len++] = val;
 }
 
@@ -464,34 +465,27 @@ JINLINE void jmap_rehash(jmap_t* map, size_t hint)
 
     size_t target = ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
 
-    jmap_t copy = {0};
-    copy.bcap = MAX( MAX(hint, 13), target);
-    copy.blen = 0;
+    size_t blen = map->blen;
+    jmapbucket_t* buckets = map->buckets;
 
-    copy.slen = map->slen;
-    copy.scap = map->scap;
+    map->bcap = MAX( MAX(hint, 13), target);
+    map->buckets = (jmapbucket_t*)jcalloc(map->bcap, sizeof(jmapbucket_t));
+    map->blen = 0;
 
-    copy.buckets = (jmapbucket_t*)jcalloc(copy.bcap, sizeof(jmapbucket_t));
-    copy.strs = map->strs;
-
-    map->slen = 0;
-    map->scap = 0;
-    map->strs = NULL;
-
-    for ( size_t i = 0; i < map->bcap; i++ )
+    for ( size_t i = 0; i < blen; i++ )
     {
-        jmapbucket_t* src = &map->buckets[i];
-        if (!src) continue;
-
-        for ( size_t n = 0; n < src->len; n++ )
+        jmapbucket_t* bucket = &buckets[i];
+        for ( size_t n = 0; n < bucket->len; n++ )
         {
-            jstr_t* str = &copy.strs[src->slots[n]];
-            _jmap_add_key(&copy, str->hash, src->slots[n]);
+            size_t idx = bucket->slots[n];
+            _jmap_add_key(map, map->strs[idx].hash, idx);
         }
-    }
 
-    jmap_destroy(map);
-    *map = copy;
+        bucket->len = 0;
+        bucket->cap = 0;
+        jfree(bucket->slots); bucket->slots = NULL;
+    }
+    jfree(buckets); buckets = NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -513,37 +507,30 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
     jmap_rehash(map, 0);
 
     assert(map->bcap > 0);
-    size_t idx = hash % map->bcap;
-    jmapbucket_t* bucket = &map->buckets[idx];
-
-    size_t rt = SIZE_T_MAX;
+    jmapbucket_t* bucket = &map->buckets[hash % map->bcap];
 
     for ( size_t i = 0; i < bucket->len; ++i )
     {
+        // find our string
         size_t idx = bucket->slots[i];
         jstr_t* str = &map->strs[idx];
+
         if (str->hash == hash && str->len == slen)
         {
             const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
             assert(chars);
+
             if (strncmp(chars, cstr, slen) == 0)
             {
-                rt = idx;
-                break;
+                return idx;
             }
         }
     }
 
-    if (rt == SIZE_T_MAX)
-    {
-        jmap_bucket_reserve(map, idx, 1);
-
-        // not found, create a new one
-        rt = _jmap_add_str(map, cstr, slen, hash);
-        bucket->slots[bucket->len++] = rt;
-    }
-
-    return rt;
+    // did not find an existing entry, create a new one
+    size_t idx = _jmap_add_str(map, cstr, slen, hash);
+    _jmap_add_key(map, hash, idx);
+    return idx;
 }
 
 #pragma mark - jval_t
@@ -593,7 +580,7 @@ void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f )
 JINLINE void json_objs_reserve( json_t* jsn, size_t res )
 {
     assert(jsn);
-    if (jsn->objs.len+res < jsn->objs.cap)
+    if (jsn->objs.len+res <= jsn->objs.cap)
         return;
 
     jsn->objs.cap = grow(jsn->objs.len+res, jsn->objs.cap);
@@ -627,7 +614,7 @@ JINLINE size_t json_add_obj( json_t* jsn )
 JINLINE void json_arrays_reserve( json_t* jsn, size_t res )
 {
     assert(jsn);
-    if (jsn->arrays.len+res < jsn->arrays.cap)
+    if (jsn->arrays.len+res <= jsn->arrays.cap)
         return;
 
     jsn->arrays.cap = grow(jsn->arrays.len+res, jsn->arrays.cap);
@@ -660,11 +647,11 @@ JINLINE size_t json_add_array( json_t* jsn )
 JINLINE void json_nums_reserve( json_t* jsn, size_t len )
 {
     assert(jsn);
-    if (jsn->nums.len+len >= jsn->nums.cap)
-    {
-        jsn->nums.cap = grow(jsn->nums.len+len, jsn->nums.cap);
-        jsn->nums.ptr = (jnum_t*)jrealloc(jsn->nums.ptr, jsn->nums.cap * sizeof(jnum_t));
-    }
+    if (jsn->nums.len+len <= jsn->nums.cap)
+        return;
+
+    jsn->nums.cap = grow(jsn->nums.len+len, jsn->nums.cap);
+    jsn->nums.ptr = (jnum_t*)jrealloc(jsn->nums.ptr, jsn->nums.cap * sizeof(jnum_t));
 }
 
 //------------------------------------------------------------------------------
@@ -774,9 +761,11 @@ const char* jobj_get(jobj_t obj, size_t idx, jval_t* val)
 }
 
 //------------------------------------------------------------------------------
-JINLINE void _jobj_truncate( _jobj_t* obj )
+JINLINE void jobj_truncate( jobj_t o )
 {
+    _jobj_t* obj = jobj_get_obj(o);
     assert(obj);
+
     if (obj->len == obj->cap)
         return;
 
@@ -800,7 +789,7 @@ JINLINE void _jobj_truncate( _jobj_t* obj )
 JINLINE void _jobj_reserve( _jobj_t* obj, size_t cap )
 {
     assert(obj);
-    if ( obj->len+cap < obj->cap)
+    if ( obj->len+cap <= obj->cap)
         return;
 
     size_t prev_cap = obj->cap;
@@ -1007,8 +996,9 @@ size_t jarray_len(jarray_t a)
 }
 
 //------------------------------------------------------------------------------
-JINLINE void _jarray_truncate( _jarray_t* array )
+JINLINE void jarray_truncate( jarray_t a )
 {
+   _jarray_t* array = _jarray_get_array(a);
     assert(array);
 
     if (array->len == array->cap)
@@ -1035,7 +1025,7 @@ JINLINE void _jarray_reserve( _jarray_t* a, size_t cap )
 {
     assert(a);
 
-    if ( a->len+cap < a->cap )
+    if ( a->len+cap <= a->cap )
         return;
 
     size_t prev_cap = a->cap;
@@ -1213,7 +1203,7 @@ JINLINE void jbuf_clear( jbuf_t* buf )
 JINLINE void jbuf_reserve( jbuf_t* buf, size_t cap )
 {
     assert(buf);
-    if (buf->len+cap < buf->cap)
+    if (buf->len+cap <= buf->cap)
         return;
 
     buf->cap = grow(buf->len+cap, buf->cap);
@@ -1752,6 +1742,7 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
 
             case ']':
                 jnext(ctx);
+                jarray_truncate(array);
                 return;
 
             default:
@@ -1793,6 +1784,7 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
 
             case '}':
                 jnext(ctx);
+                jobj_truncate(obj);
                 return;
 
             default:
@@ -2036,6 +2028,7 @@ const char* json_load_path(json_t* jsn, const char* path)
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t* jsn)
 {
+    assert(jsn);
 #define PRINT_MEMORY 1
 #if PRINT_MEMORY
     size_t total = 0;
