@@ -77,7 +77,7 @@ void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen );
 void jobj_add_bool( jobj_t obj, const char* key, jbool_t b );
 void jobj_add_nil( jobj_t obj, const char* key );
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
-jval_t jobj_findl( jobj_t obj, const char* key, size_t klen );
+size_t jobj_findl( jobj_t obj, const char* key, size_t klen );
 size_t jobj_len( jobj_t obj );
 const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
 void jobj_print(jobj_t obj, size_t depth, FILE* f);

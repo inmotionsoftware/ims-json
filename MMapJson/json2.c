@@ -41,17 +41,19 @@
 #pragma mark - macros
 
 #ifndef MAX
-    #define MAX(A,B) (A)>(B)?(A):(B)
+    #define MAX(A,B) ({__typeof__(A) a = (A); __typeof__(B) b = (B); a>b?a:b; })
 #endif
 
 #ifndef MIN
-    #define MIN(A,B) (A)<(B)?(A):(B)
+    #define MIN(A,B) ({__typeof__(A) a = (A); __typeof__(B) b = (B); a<b?a:b; })
 #endif
 
 #define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
 
+__thread char jerr_buf[256] = "";
+
 #ifndef json_assert
-    #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->buf, sizeof(ctx->buf), "%s:%zu:%zu: " STR, ctx->src, ctx->line+1, ctx->col, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
+    #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(jerr_buf, sizeof(jerr_buf), "%s:%zu:%zu: " STR, ctx->src, ctx->line+1, ctx->col, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
 #endif
 
 #define PRINT 1
@@ -443,14 +445,45 @@ JINLINE void _jmap_add_key(jmap_t* map, uint32_t hash, size_t val)
     jmap_bucket_reserve(bucket, 1);
     assert(bucket->slots);
 
-    if (!bucket->len == 0) map->blen++; // empty bucket, we are about to add it, increment
+    if (bucket->len == 0) map->blen++; // empty bucket, we are about to add it, increment
     bucket->slots[bucket->len++] = val;
 }
+
+////------------------------------------------------------------------------------
+//void jmap_debug( jmap_t* map )
+//{
+//    puts("--- maps ---");
+//
+//    for ( size_t i = 0; i < map->bcap; i++ )
+//    {
+//        jmapbucket_t* bucket = &map->buckets[i];
+//        for ( size_t n = 0; n < bucket->len; n++ )
+//        {
+//            size_t idx = bucket->slots[n];
+//
+//            jstr_t* str = &map->strs[idx];
+//            const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
+//            puts(chars);
+//        }
+//    }
+//
+//    puts("--- strings ---");
+//    for ( size_t n = 0; n < map->slen; n++ )
+//    {
+//        jstr_t* str = &map->strs[n];
+//        const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
+//        puts(chars);
+//    }
+//}
 
 //------------------------------------------------------------------------------
 JINLINE void jmap_rehash(jmap_t* map, size_t hint)
 {
     assert(map);
+
+//    puts("----------------------------------------");
+//    jmap_debug(map);
+//    puts("----------------------------------------");
 
     // if there is an empty hashmap, no need to check the load factor!
     if (map->bcap > 0)
@@ -464,14 +497,14 @@ JINLINE void jmap_rehash(jmap_t* map, size_t hint)
 
     size_t target = ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
 
-    size_t blen = map->blen;
+    size_t max = map->bcap;
     jmapbucket_t* buckets = map->buckets;
 
     map->bcap = MAX( MAX(hint, 13), target);
     map->buckets = (jmapbucket_t*)jcalloc(map->bcap, sizeof(jmapbucket_t));
     map->blen = 0;
 
-    for ( size_t i = 0; i < blen; i++ )
+    for ( size_t i = 0; i < max; i++ )
     {
         jmapbucket_t* bucket = &buckets[i];
         for ( size_t n = 0; n < bucket->len; n++ )
@@ -496,14 +529,10 @@ JINLINE jstr_t* jmap_get_str(jmap_t* map, size_t idx)
 }
 
 //------------------------------------------------------------------------------
-JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
+JINLINE size_t jmap_find_hash(jmap_t* map, jhash_t hash, const char* cstr, size_t slen)
 {
-    assert(map);
     assert(cstr);
-
-    jhash_t hash = jstr_hash(cstr, slen);
-
-    jmap_rehash(map, 0);
+    if (map->blen == 0) return SIZE_T_MAX;
 
     assert(map->bcap > 0);
     jmapbucket_t* bucket = &map->buckets[hash % map->bcap];
@@ -526,8 +555,28 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
         }
     }
 
+    return SIZE_T_MAX;
+}
+
+//------------------------------------------------------------------------------
+#define jmap_find_str(MAP, CSTR, SLEN) jmap_find_hash(MAP, jstr_hash(CSTR, SLEN), CSTR, SLEN)
+
+//------------------------------------------------------------------------------
+JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
+{
+    assert(map);
+    assert(cstr);
+
+    jhash_t hash = jstr_hash(cstr, slen);
+
+    size_t idx = jmap_find_hash(map, hash, cstr, slen);
+    if (idx != SIZE_T_MAX)
+        return idx;
+
+    jmap_rehash(map, 0);
+
     // did not find an existing entry, create a new one
-    size_t idx = _jmap_add_str(map, cstr, slen, hash);
+    idx = _jmap_add_str(map, cstr, slen, hash);
     _jmap_add_key(map, hash, idx);
     return idx;
 }
@@ -929,42 +978,65 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key )
 }
 
 //------------------------------------------------------------------------------
-jval_t jobj_findl( jobj_t obj, const char* key, size_t klen )
+size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
 {
+    assert (klen < 4);
+
+    _jobj_t* _obj = jobj_get_obj(obj);
+    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs : _obj->buf;
+    for ( size_t i = 0; i < _obj->len; i++ )
+    {
+        jkv_t* kv = &kvs[i];
+        if ( (kv->val.type & ~JTYPE_MASK) == 0 )
+            continue;
+
+        if (strcmp(kv->kstr, key) == 0)
+        {
+            // found it!
+            return i;
+        }
+    }
+    return SIZE_T_MAX;
+
+}
+
+//------------------------------------------------------------------------------
+size_t jobj_findl( jobj_t obj, const char* key, size_t klen )
+{
+    // check for short strings, these do not go into the hash table and must be
+    // searched manually
+    if (klen < 4) return jobj_find_shortstr(obj, key, klen);
+
+    // not a short string! Proceed with search.
     json_t* jsn = jobj_get_json(obj);
     _jobj_t* _obj = jobj_get_obj(obj);
 
+    // check the hashtable for our string, if it's not there it's no where!
+    size_t idx = jmap_find_str(&jsn->strmap, key, klen);
+    if (idx == SIZE_T_MAX)
+    {
+        return idx;
+    }
+
+    // we now know the correct index for our key, search the object to find a
+    // matching index.
     jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs : _obj->buf;
-
-    jhash_t hash = jstr_hash(key, klen);
-
     for ( size_t i = 0; i < _obj->len; i++ )
     {
         jkv_t* kv = &kvs[i];
 
+        // can't be a short string (we already checked), if this one is skip it.
         if ( (kv->val.type & ~JTYPE_MASK) > 0 )
-        {
-            if (strcmp(kv->kstr, key) == 0)
-            {
-                // found it!
-                return kv->val;
-            }
-
             continue;
-        }
 
-        jstr_t* jstr = jmap_get_str(&jsn->strmap, kv->_key);
-        if (jstr->hash != hash) continue;
-        if (jstr->len != klen) continue;
-
-        const char* str = (jstr->len > BUF_SIZE) ? jstr->chars : jstr->buf;
-        if (strncmp(str, key, klen) == 0)
+        // found a match!!!
+        if (kv->_key == idx)
         {
-            return kv->val;
+            return i;
         }
     }
 
-    return (jval_t){ .type=JTYPE_NIL, .idx=0 };
+    return SIZE_T_MAX;
 }
 
 //------------------------------------------------------------------------------
@@ -1295,9 +1367,9 @@ void json_destroy(json_t* jsn)
     jfree(jsn->objs.ptr); jsn->objs.ptr = NULL;
 
     // cleanup arrays
-    for ( size_t i = 0; i < jsn->arrays.len; i++ )
+    for ( size_t n = 0; n < jsn->arrays.len; n++ )
     {
-        _jarray_t* array = _json_get_array(jsn, i);
+        _jarray_t* array = _json_get_array(jsn, n);
         if (array->cap > BUF_SIZE)
         {
             jfree(array->vals); array->vals = NULL;
@@ -1924,7 +1996,7 @@ JINLINE const char* _json_load_file(json_t* jsn, const char* src, FILE* file)
     print_mem_usage();
     print_memory_stats(jsn);
 
-    return *ctx.buf ? strdup(ctx.buf) : NULL;
+    return *jerr_buf ? jerr_buf : NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -1954,9 +2026,13 @@ JINLINE const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size
     jcontext_destroy(&ctx);
 
     print_mem_usage();
-    print_memory_stats(jsn);
 
-    return *ctx.buf ? strdup(ctx.buf) : NULL;
+    if (jsn)
+    {
+        print_memory_stats(jsn);
+    }
+
+    return *jerr_buf ? jerr_buf : NULL;
 }
 
 //------------------------------------------------------------------------------

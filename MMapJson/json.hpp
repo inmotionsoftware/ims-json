@@ -69,6 +69,7 @@ namespace ims
             void operator= ( size_t i ) { jobj_add_num(m_obj, m_key, i); }
             void operator= ( bool b ) { jobj_add_bool(m_obj, m_key, b); }
             void operator= ( std::nullptr_t ) { jobj_add_nil(m_obj, m_key); }
+            void operator= ( const class val& v );
 
             class array add_array();
 
@@ -148,6 +149,17 @@ namespace ims
             return *this;
         }
 
+        iterator find( const std::string& str )
+        {
+            size_t idx = jobj_findl(m_obj, str.c_str(), str.length());
+            if (idx == SIZE_T_MAX)
+            {
+                return end();
+            }
+            return iterator(*this, idx);
+        }
+
+        setter operator[] ( const std::string& key ) { return setter(key.c_str(), *this); }
         setter operator[] ( const char* key ) { return setter(key, *this); }
         obj add_obj( const char* key ) { return jobj_add_obj(m_obj, key); }
         class array add_array( const char* key );
@@ -173,7 +185,6 @@ namespace ims
         friend class val;
         friend class const_val;
     public:
-
 
         class iterator
         {
@@ -227,6 +238,8 @@ namespace ims
             jarray_add_str(m_array, s);
             return *this;
         }
+
+        array& push_back( const val& val );
 
     protected:
 
@@ -329,6 +342,296 @@ namespace ims
 
         json_t* m_jsn;
     };
+
+    //--------------------------------------------------------------------------
+    class val
+    {
+        friend class obj::setter;
+        friend class array;
+    public:
+        typedef std::vector<val> array;
+        typedef std::map<std::string, val> obj;
+
+        val ()
+            : m_type(JTYPE_NIL)
+        {}
+
+        val ( bool b )
+            : m_type(b ? JTYPE_TRUE : JTYPE_FALSE)
+        {}
+
+        val ( int n )
+            : m_type(JTYPE_NUM)
+            , m_num(n)
+        {}
+
+        val ( jnum_t n )
+            : m_type(JTYPE_NUM)
+            , m_num(n)
+        {}
+
+        val ( std::nullptr_t )
+            : m_type(JTYPE_NIL)
+        {}
+
+        val ( const char* cstr )
+            : m_type(JTYPE_STR)
+            , m_str(cstr)
+        {}
+
+        val ( const std::string& str )
+            : m_type(JTYPE_STR)
+            , m_str(str)
+        {}
+
+        val ( const val::array& array )
+            : m_type(JTYPE_ARRAY)
+            , m_array(array)
+        {}
+
+        val ( const val::obj& obj )
+            : m_type(JTYPE_OBJ)
+            , m_obj(obj)
+        {}
+
+        val ( val::array&& array )
+            : m_type(JTYPE_ARRAY)
+            , m_array(std::move(array))
+        {}
+
+        val ( val::obj&& obj )
+            : m_type(JTYPE_OBJ)
+            , m_obj(std::move(obj))
+        {}
+
+        val ( std::string&& str )
+            : m_type(JTYPE_STR)
+            , m_str(std::move(str))
+        {}
+
+        ~val()
+        {
+            switch (m_type)
+            {
+                case JTYPE_OBJ:
+                    m_obj.~obj();
+                    break;
+                case JTYPE_STR:
+                    m_str.~basic_string();
+                    break;
+                case JTYPE_ARRAY:
+                    m_array.~array();
+                    break;
+
+                default:
+                    break;
+            }
+            m_type = JTYPE_NIL;
+        }
+
+        val( val&& mv )
+            : m_type(mv.m_type)
+        {
+            switch (mv.m_type)
+            {
+                case JTYPE_OBJ:
+                    new (this) val(std::move(mv.m_obj));
+                    break;
+
+                case JTYPE_STR:
+                    new (this) val(std::move(mv.m_str));
+                    break;
+
+                case JTYPE_ARRAY:
+                    new (this) val(std::move(mv.m_array));
+                    break;
+
+                case JTYPE_NUM:
+                    new (this) val(mv.m_num);
+                    break;
+
+                case JTYPE_NIL:
+                    new (this) val();
+
+                case JTYPE_FALSE:
+                    new (this) val(false);
+                    break;
+
+                case JTYPE_TRUE:
+                    new (this) val(true);
+                    break;
+
+                default:
+                    break;
+            }
+            mv.m_type = JTYPE_NIL;
+        }
+
+        val( const val& v )
+            : m_type(v.m_type)
+        {
+            switch (v.m_type)
+            {
+                case JTYPE_OBJ:
+                    new (this) val(v.m_obj);
+                    break;
+
+                case JTYPE_STR:
+                    new (this) val(v.m_str);
+                    break;
+
+                case JTYPE_ARRAY:
+                    new (this) val(v.m_array);
+                    break;
+
+                case JTYPE_NUM:
+                    new (this) val(v.m_num);
+                    break;
+
+                case JTYPE_NIL:
+                    new (this) val();
+                    break;
+
+                case JTYPE_FALSE:
+                    new (this) val(false);
+                    break;
+
+                case JTYPE_TRUE:
+                    new (this) val(true);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        int type() const { return m_type; }
+
+    protected:
+        int m_type;
+        union
+        {
+            std::string m_str;
+            jnum_t m_num;
+            val::array m_array;
+            val::obj m_obj;
+        };
+    };
+//
+//    //--------------------------------------------------------------------------
+//    template < typename T >
+//    val::val::array to_array( const T& t )
+//    {
+//
+//    }
+//
+//    //--------------------------------------------------------------------------
+//    template < typename T, typename... ARGS >
+//    val::val::array to_array( const T& t, const ARGS& ...args )
+//    {
+//
+//    }
+
+    //--------------------------------------------------------------------------
+    array& array::push_back( const val& v )
+    {
+        switch (v.type())
+        {
+            case JTYPE_OBJ:
+            {
+                auto obj = this->push_obj();
+                for ( const auto& pair : v.m_obj )
+                {
+                    obj[pair.first] = pair.second;
+                }
+                break;
+            }
+
+            case JTYPE_STR:
+                push_back(v.m_str);
+                break;
+
+            case JTYPE_ARRAY:
+            {
+                auto array = this->push_array();
+                for ( const auto& val : v.m_array )
+                {
+                    array.push_back(val);
+                }
+                break;
+            }
+
+            case JTYPE_NUM:
+                push_back(v.m_num);
+                break;
+
+            case JTYPE_NIL:
+                push_back(nullptr);
+                break;
+
+            case JTYPE_FALSE:
+                push_back(false);
+                break;
+
+            case JTYPE_TRUE:
+                push_back(true);
+                break;
+
+            default:
+                break;
+        }
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------
+    void obj::setter::operator= ( const class val& v )
+    {
+        switch (v.type())
+        {
+            case JTYPE_OBJ:
+            {
+                auto obj = this->add_obj();
+                for ( const auto& pair : v.m_obj )
+                {
+                    obj[pair.first] = pair.second;
+                }
+                break;
+            }
+
+            case JTYPE_STR:
+                this->operator=(v.m_str);
+                break;
+
+            case JTYPE_ARRAY:
+            {
+                auto array = this->add_array();
+                for ( const auto& val : v.m_array )
+                {
+                    array.push_back(val);
+                }
+                break;
+            }
+
+            case JTYPE_NUM:
+                this->operator=(v.m_num);
+                break;
+
+            case JTYPE_NIL:
+                this->operator=(nullptr);
+                break;
+
+            case JTYPE_FALSE:
+                this->operator=(false);
+                break;
+
+            case JTYPE_TRUE:
+                this->operator=(true);
+                break;
+
+            default:
+                break;
+        }
+    }
 
     //--------------------------------------------------------------------------
     class const_val

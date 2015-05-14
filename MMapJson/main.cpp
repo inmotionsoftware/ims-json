@@ -112,16 +112,27 @@ static void test_construction_cpp()
         root["num"] = 3.14;
         root["string"] = "string";
         root["child"].add_obj("key", "child");
-        auto array = root.add_array("array");
+        root["array"] = val::array
         {
-            array.push_back(true);
-            array.push_back(false);
-            array.push_back(nullptr);
-            array.push_back(5.5);
-            array.push_obj().add("true", true);
-            array.push_array().add(1, 2, 3);
-        }
+            true,
+            false,
+            nullptr,
+            5.5,
+            val::obj
+            {
+                {"true", true},
+                {"num", 5}
+            },
+            val::array{1,2,3}
+        };
     }
+
+    auto it = root.find("string");
+    if (it != root.end())
+    {
+        std::cout << (*it).first << ": " << (*it).second << std::endl;
+    }
+
     std::cout << jsn << std::endl;
 }
 
@@ -145,9 +156,9 @@ int main(int argc, const char * argv[])
 //    double t2 = time_call(test_construction);
 //    log_debug("completed in: %f secs", t2);
 //
-//    log_debug("starting 'test_construction_cpp'");
-//    double t3 = time_call(test_construction_cpp);
-//    log_debug("completed in: %f secs", t3);
+    log_debug("starting 'test_construction_cpp'");
+    double t3 = time_call(test_construction_cpp);
+    log_debug("completed in: %f secs", t3);
 
 //    auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
 //    if (j2)
