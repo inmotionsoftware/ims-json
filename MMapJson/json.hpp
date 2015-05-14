@@ -517,20 +517,99 @@ namespace ims
             val::obj m_obj;
         };
     };
-//
-//    //--------------------------------------------------------------------------
-//    template < typename T >
-//    val::val::array to_array( const T& t )
-//    {
-//
-//    }
-//
-//    //--------------------------------------------------------------------------
-//    template < typename T, typename... ARGS >
-//    val::val::array to_array( const T& t, const ARGS& ...args )
-//    {
-//
-//    }
+
+    std::ostream& unicode_write( std::ostream& os, const char* str )
+    {
+        os << '"';
+
+        for ( int ch = *str&0xFF; ch; ch = *++str&0xFF )
+        {
+            switch (ch)
+            {
+                case '\\':
+                    os << "\\\\";
+                    break;
+
+                case '"':
+                    os << "\\\"";
+                    break;
+
+                case '\r':
+                    os << "\\r";
+                    break;
+
+                case '\n':
+                    os << "\\n";
+                    break;
+
+                case '\f':
+                    os << "\\f";
+                    break;
+
+                case '\t':
+                    os << "\\t";
+                    break;
+
+                case '/':
+                default:
+                {
+                    if (ch < 0x80)
+                    {
+                        os << (char)ch;
+                    }
+                    else
+                    {
+                        uint32_t codepoint = 0;
+                        if ( (ch & 0xE0) == 0xC0 )
+                        {
+                            // 2 bytes
+                            codepoint = (*str++&0x1F) << 5;
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                        }
+                        else if ( (ch & 0xF0) == 0xE0 )
+                        {
+                            // 3 bytes
+                            codepoint = (*str++&0xF) << 4;
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                        }
+                        else if ( (ch & 0xF8) == 0xF0 )
+                        {
+                            // 4 bytes
+                            codepoint = (*str++&0x7) << 3;
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                        }
+                        else if ( (ch & 0xFC) == 0xF8 )
+                        {
+                            // 5 bytes
+                            codepoint = (*str++&0x3) << 2;
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                        }
+                        else if ( (ch & 0xFE) == 0xFC )
+                        {
+                            // 6 bytes
+                            codepoint = (*str++&0x1) << 1;
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                            codepoint = (codepoint << 6) | (*str++&0x3F);
+                        }
+                        os << std::hex << codepoint;
+                    }
+                    break;
+                }
+            }
+        }
+
+        os << '"';
+        return os;
+    }
 
     //--------------------------------------------------------------------------
     array& array::push_back( const val& v )
@@ -671,7 +750,7 @@ namespace ims
                     os << "null";
                     break;
                 case JTYPE_STR:
-                    os << (const char*)*this;
+                    unicode_write(os, *this);
                     break;
                 case JTYPE_NUM:
                     os << (jnum_t)*this;
@@ -764,7 +843,9 @@ namespace ims
             write_tabs(os, depth+1);
 
             const auto& pair = (*it);
-            os << '"' << pair.first << "\": ";
+            os << '"';
+            unicode_write(os, pair.first.c_str());
+            os << "\": ";
             pair.second.write(os, depth+1);
 
             if (++next != end) os << ',';

@@ -49,27 +49,20 @@
 #endif
 
 #define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
-
-__thread char jerr_buf[256] = "";
-
-#ifndef json_assert
-    #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(jerr_buf, sizeof(jerr_buf), "%s:%zu:%zu: " STR, ctx->src, ctx->line+1, ctx->col, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
-#endif
-
-#define PRINT 1
-#if PRINT
-    #define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
-#else
-    #define json_fprintf(F, FMT, ...)
-#endif
+#define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(jerr_buf, sizeof(jerr_buf), "%s:%zu:%zu: " STR, ctx->src, ctx->line+1, ctx->col, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
+#define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
 
 #pragma mark - constants
 
 #if __STRICT_ANSI__
     #define JINLINE
+    #define JTHREAD_LOCAL __thread
 #else
     #define JINLINE static inline
+    #define JTHREAD_LOCAL __thread
 #endif
+
+JTHREAD_LOCAL char jerr_buf[256] = "";
 
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
@@ -78,13 +71,11 @@ __thread char jerr_buf[256] = "";
 #define JMAP_MAX_LOADFACTOR 0.8f
 #define JMAP_IDEAL_LOADFACTOR 0.3f
 
-// pack short keys directly into the jkv_t struct if possible
-#define PACK_KEYS 1
-
 #define JTRUE 1
 #define JFALSE 0
 
 #define IO_BUF_SIZE 4096
+#define JMAX_SRC_STR 128
 
 #pragma mark - structs
 
@@ -111,7 +102,7 @@ struct jcontext_t
     size_t col;
     size_t line;
 
-    char src[128];
+    char src[JMAX_SRC_STR];
 
     jmp_buf jerr_jmp;
 
@@ -584,6 +575,105 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 #pragma mark - jval_t
 
 //------------------------------------------------------------------------------
+void json_print_unicode( const char* str, FILE* f)
+{
+
+}
+
+//------------------------------------------------------------------------------
+void json_print_str( const char* str, FILE* f )
+{
+    putc('"', f);
+
+    for ( int ch = *str&0xFF; ch; ch = *++str&0xFF )
+    {
+        switch (ch)
+        {
+            case '\\':
+                fprintf(f, "\\\\");
+                break;
+
+            case '"':
+                fprintf(f, "\\\"");
+                break;
+
+            case '\r':
+                fprintf(f, "\\r");
+                break;
+
+            case '\n':
+                fprintf(f, "\\n");
+                break;
+
+            case '\f':
+                fprintf(f, "\\f");
+                break;
+
+            case '\t':
+                fprintf(f, "\\t");
+                break;
+
+            case '/':
+            default:
+            {
+                if (ch < 0x80)
+                {
+                    putc(ch, f);
+                }
+                else
+                {
+                    uint32_t codepoint = 0;
+                    if ( (ch & 0xE0) == 0xC0 )
+                    {
+                        // 2 bytes
+                        codepoint = (*str++&0x1F) << 5;
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                    }
+                    else if ( (ch & 0xF0) == 0xE0 )
+                    {
+                        // 3 bytes
+                        codepoint = (*str++&0xF) << 4;
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                    }
+                    else if ( (ch & 0xF8) == 0xF0 )
+                    {
+                        // 4 bytes
+                        codepoint = (*str++&0x7) << 3;
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                    }
+                    else if ( (ch & 0xFC) == 0xF8 )
+                    {
+                        // 5 bytes
+                        codepoint = (*str++&0x3) << 2;
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                    }
+                    else if ( (ch & 0xFE) == 0xFC )
+                    {
+                        // 6 bytes
+                        codepoint = (*str++&0x1) << 1;
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                        codepoint = (codepoint << 6) | (*str++&0x3F);
+                    }
+                    fprintf(f, "\\u%X", codepoint);
+                }
+                break;
+            }
+        }
+    }
+
+    putc('"', f);
+}
+
+//------------------------------------------------------------------------------
 void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f )
 {
     switch (jval_type(val))
@@ -593,7 +683,8 @@ void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f )
             break;
 
         case JTYPE_STR:
-            json_fprintf(f, "\"%s\"", json_get_str(jsn, val));
+            json_print_str(json_get_str(jsn, val), f);
+
             break;
 
         case JTYPE_NUM:
@@ -891,7 +982,6 @@ JINLINE jkv_t* jobj_add_keyl( jobj_t o, const char* key, size_t klen )
     kv->val.type = JTYPE_NIL;
     kv->val.idx = 0;
 
-#if PACK_KEYS
     if (klen < sizeof(kv->kstr) )
     {
         kv->_key = 0;
@@ -899,7 +989,6 @@ JINLINE jkv_t* jobj_add_keyl( jobj_t o, const char* key, size_t klen )
         kv->val.type |= ~JTYPE_MASK;
     }
     else
-#endif
     {
         size_t kidx = json_add_strl(jsn, key, klen);
         assert (kidx < MAX_KEY_IDX);
@@ -1052,7 +1141,8 @@ void jobj_print(jobj_t obj, size_t depth, FILE* f)
         const char* key = jobj_get(obj, i, &val);
 
         print_tabs(depth+1, f);
-        json_fprintf(f, "\"%s\": ", key);
+        json_print_str(key, f);
+        json_fprintf(f, ": ");
         jval_print(jsn, val, depth+1, f);
         json_fprintf(f, (i+1 == len) ?  "\n" : ",\n" );
     }
@@ -1453,7 +1543,7 @@ JINLINE int jpeek( jcontext_t* ctx )
     if (ctx->file && ctx->beg == ctx->end) // need to read more data from file?
     {
         // read file into buffer
-        size_t len = fread(ctx->buf, 1, IO_BUF_SIZE, ctx->file);
+        size_t len = fread(ctx->buf, 1, sizeof(ctx->buf), ctx->file);
         if (len == 0 && feof(ctx->file) != 0)
         {
             json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", strerror(errno));
@@ -1466,7 +1556,7 @@ JINLINE int jpeek( jcontext_t* ctx )
     {
         return EOF;
     }
-    return *ctx->beg;
+    return (unsigned char)*ctx->beg;
 }
 
 //------------------------------------------------------------------------------
@@ -1695,6 +1785,8 @@ JINLINE unsigned int parse_unicode_hex(jcontext_t* ctx)
 //------------------------------------------------------------------------------
 JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
 {
+    json_assert(jpeek(ctx) == 'u', "not a valid unicode sequence"); jnext(ctx);
+
     // U+XXXX
     unsigned int val = parse_unicode_hex(ctx);
 //    json_error(val > 0, is, "\\u0000 is not allowed");
@@ -1986,6 +2078,8 @@ JINLINE const char* _json_load_file(json_t* jsn, const char* src, FILE* file)
     jcontext_set_src(&ctx, src);
 
     print_mem_usage();
+
+    jerr_buf[0] = '\0'; // reset the error
     if (json_parse_file(jsn, &ctx) != 0)
     {
         json_destroy(jsn); jsn = NULL;
@@ -2018,6 +2112,8 @@ JINLINE const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size
     json_objs_reserve(jsn, est);
 
     print_mem_usage();
+
+    jerr_buf[0] = '\0'; // reset the error
     if (json_parse_file(jsn, &ctx) != 0)
     {
         json_destroy(jsn); jsn = NULL;
@@ -2040,8 +2136,8 @@ const char* json_load_file(json_t* jsn, FILE* file)
 {
 #if __LINUX__
     int fd = fileno(file);
-    char src[128] = "?";
-    char fdpath[128];
+    char src[JMAX_SRC_STR] = "?";
+    char fdpath[JMAX_SRC_STR];
     jsnprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", fd);
     readlink(fdpath, src, sizeof(src));
 
@@ -2061,7 +2157,7 @@ const char* json_load_file(json_t* jsn, FILE* file)
 //------------------------------------------------------------------------------
 const char* json_load_buf(json_t* jsn, void* buf, size_t blen)
 {
-    char src[128];
+    char src[JMAX_SRC_STR];
     jsnprintf(src, sizeof(src), "%p", buf);
     return _json_load_buf(jsn, src, buf, blen);
 }
