@@ -1895,29 +1895,36 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
     json_assert(prev == '[', "Expected an array, found: '%c'", prev);
     json_t* jsn = array.json;
 
+    size_t count = 0;
     while ( JTRUE )
     {
-        parse_whitespace(ctx);
-
-        jval_t val = parse_val(jsn, ctx);
-        *_jarray_add_val(_jarray_get_array(array)) = val;
+        size_t len = jarray_len(array);
 
         parse_whitespace(ctx);
-
-        int ch = jpeek(ctx);
-        switch(ch)
+        switch(jpeek(ctx))
         {
             case ',':
+            {
+                json_assert(len == ++count, "expected value after ','");
                 jnext(ctx);
                 break;
+            }
 
             case ']':
+            {
+                json_assert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
                 jnext(ctx);
                 jarray_truncate(array);
                 return;
+            }
 
             default:
-                json_assert(JFALSE, "expected ',' or ']' when parsing array: '%c'", ch);
+            {
+                json_assert(len == count, "missing ',' separator");
+                jval_t val = parse_val(jsn, ctx);
+                *_jarray_add_val(_jarray_get_array(array)) = val;
+                break;
+            }
         }
     }
 }
@@ -1929,38 +1936,44 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
     json_assert(prev == '{', "Expected an object, found: '%c'", prev);
     json_t* jsn = jobj_get_json(obj);
 
+    size_t count = 0;
     while ( JTRUE )
     {
-        parse_whitespace(ctx);
-
-        // get the key
-        parse_str(&ctx->strbuf, ctx);
-        const char* key = ctx->strbuf.ptr;
-
-        jkv_t* kv = jobj_add_keyl(obj, key, ctx->strbuf.len);
+        size_t len = jobj_len(obj);
 
         parse_whitespace(ctx);
-        json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
-        parse_whitespace(ctx);
-
-        jkv_set_val(kv, parse_val(jsn, ctx));
-
-        parse_whitespace(ctx);
-
-        int ch = jpeek(ctx);
-        switch (ch)
+        switch (jpeek(ctx))
         {
             case ',':
+            {
+                json_assert(len == ++count, "expected key/value after ','");
                 jnext(ctx);
                 break;
+            }
 
             case '}':
+            {
+                json_assert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
                 jnext(ctx);
                 jobj_truncate(obj);
                 return;
+            }
 
             default:
-                json_assert(JFALSE, "expected ',' or '}' when parsing object: '%c'", ch);
+            {
+                json_assert(len == count, "missing ',' separator");
+                parse_str(&ctx->strbuf, ctx);
+                const char* key = ctx->strbuf.ptr;
+
+                jkv_t* kv = jobj_add_keyl(obj, key, ctx->strbuf.len);
+
+                parse_whitespace(ctx);
+                json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
+                parse_whitespace(ctx);
+
+                jkv_set_val(kv, parse_val(jsn, ctx));
+                break;
+            }
         }
     }
 }

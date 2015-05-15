@@ -34,6 +34,7 @@
 		E77A13E51AD6E35A001068F1 /* test.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test.json; sourceTree = "<group>"; };
 		E79FE14F1AFBE698007AC026 /* json.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
 		E7BCE8141AE70790004E87D3 /* medium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = medium.json; sourceTree = "<group>"; };
+		E7FC8A671B067A1F003F2D4D /* magic.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = magic.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,6 +67,7 @@
 		E77A13DD1AD5D443001068F1 /* MMapJson */ = {
 			isa = PBXGroup;
 			children = (
+				E7FC8A671B067A1F003F2D4D /* magic.json */,
 				E77066571AE83EBF00707E5C /* small.json */,
 				E71609FF1ADB0B5D0014729D /* citylots.json */,
 				E7BCE8141AE70790004E87D3 /* medium.json */,
