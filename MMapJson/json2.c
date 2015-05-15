@@ -237,12 +237,12 @@ JINLINE jnum_t btomb(size_t bytes)
 //------------------------------------------------------------------------------
 JINLINE size_t grow( size_t min, size_t cur )
 {
-    static const jnum_t GROWTH_FACTOR = 1.1;
-    assert(min >= cur);
+    static const jnum_t GROWTH_FACTOR = 1.5;
+    static const size_t MAX_GROWTH = 1013;
+    static const size_t MIN_ALLOC = 13;
 
-    size_t size = MAX(13, min);
-    size = MAX(size, BUF_SIZE*2);
-    size = MAX(size, cur*GROWTH_FACTOR+2);
+    assert(min >= cur);
+    size_t size = MAX(MAX(MIN_ALLOC, min), MIN(cur*GROWTH_FACTOR+2, cur+MAX_GROWTH));
     assert(size > cur);
     return size;
 }
