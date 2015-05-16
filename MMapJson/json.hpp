@@ -293,10 +293,10 @@ namespace ims
         {
             // Error handling uses C++ style exceptions
             json_t* jsn = json_new();
-            const char* err = json_load_path(jsn, path.c_str());
-            if (err)
+            jerr_t err;
+            if (json_load_path(jsn, path.c_str(), &err) != 0)
             {
-                throw std::runtime_error(err);
+                throw std::runtime_error(err.msg);
             }
             return json(jsn);
         }

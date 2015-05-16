@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		E756B0441AE55228004ECF44 /* json2.c in Sources */ = {isa = PBXBuildFile; fileRef = E756B0421AE55228004ECF44 /* json2.c */; };
 		E77A13DF1AD5D443001068F1 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E77A13DE1AD5D443001068F1 /* main.cpp */; };
+		E77F725D1B06F4DB00BD59CE /* memutil.c in Sources */ = {isa = PBXBuildFile; fileRef = E77F725B1B06F4DB00BD59CE /* memutil.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -32,6 +33,8 @@
 		E77A13DB1AD5D443001068F1 /* MMapJson */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MMapJson; sourceTree = BUILT_PRODUCTS_DIR; };
 		E77A13DE1AD5D443001068F1 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		E77A13E51AD6E35A001068F1 /* test.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test.json; sourceTree = "<group>"; };
+		E77F725B1B06F4DB00BD59CE /* memutil.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = memutil.c; sourceTree = "<group>"; };
+		E77F725C1B06F4DB00BD59CE /* memutil.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = memutil.h; sourceTree = "<group>"; };
 		E79FE14F1AFBE698007AC026 /* json.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
 		E7BCE8141AE70790004E87D3 /* medium.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = medium.json; sourceTree = "<group>"; };
 		E7FC8A671B067A1F003F2D4D /* magic.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = magic.json; sourceTree = "<group>"; };
@@ -77,6 +80,8 @@
 				E756B0431AE55228004ECF44 /* json2.h */,
 				E756B0421AE55228004ECF44 /* json2.c */,
 				E79FE14F1AFBE698007AC026 /* json.hpp */,
+				E77F725B1B06F4DB00BD59CE /* memutil.c */,
+				E77F725C1B06F4DB00BD59CE /* memutil.h */,
 			);
 			path = MMapJson;
 			sourceTree = "<group>";
@@ -137,6 +142,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E77F725D1B06F4DB00BD59CE /* memutil.c in Sources */,
 				E756B0441AE55228004ECF44 /* json2.c in Sources */,
 				E77A13DF1AD5D443001068F1 /* main.cpp in Sources */,
 			);
@@ -225,7 +231,7 @@
 				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
 				CLANG_CXX_LIBRARY = "libc++";
-				GCC_C_LANGUAGE_STANDARD = "compiler-default";
+				GCC_C_LANGUAGE_STANDARD = ansi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -236,7 +242,7 @@
 				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
 				CLANG_CXX_LIBRARY = "libc++";
-				GCC_C_LANGUAGE_STANDARD = "compiler-default";
+				GCC_C_LANGUAGE_STANDARD = ansi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;

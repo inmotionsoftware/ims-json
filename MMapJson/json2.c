@@ -7,6 +7,7 @@
 //
 
 #include "json2.h"
+#include "memutil.h"
 #include <math.h>
 #include <errno.h>
 #include <memory.h>
@@ -15,54 +16,40 @@
 #include <assert.h>
 #include <setjmp.h>
 
-#if ( defined(__APPLE__) && defined(__MACH__) )
-    #include <mach/vm_statistics.h>
-    #include <mach/mach_types.h>
-    #include <mach/mach_init.h>
-    #include <mach/mach_host.h>
-    #include <mach/mach.h>
-#endif
-
-#if defined(__unix__) || ( defined(__APPLE__) && defined(__MACH__) )
-    #define JPOSIX (1)
-#else
-    #define JPOSIX (0)
-#endif
+#define JPOSIX (__unix__ || __APPLE__ && __MACH__)
 
 #if JPOSIX
     #include <sys/mman.h>
-    #include <sys/types.h>
     #include <sys/stat.h>
-    #include <unistd.h>
     #include <fcntl.h>
-    #include <sys/resource.h>
+    #include <unistd.h>
 #endif
 
 #pragma mark - macros
 
 #ifndef MAX
+//    #define MIN(A,B) ((A)>(B)?(A):(B))
     #define MAX(A,B) ({__typeof__(A) a = (A); __typeof__(B) b = (B); a>b?a:b; })
 #endif
 
 #ifndef MIN
+//    #define MIN(A,B) ((A)<(B)?(A):(B))
     #define MIN(A,B) ({__typeof__(A) a = (A); __typeof__(B) b = (B); a<b?a:b; })
 #endif
 
 #define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
-#define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(jerr_buf, sizeof(jerr_buf), "%s:%zu:%zu: " STR, ctx->src, ctx->line+1, ctx->col, ## __VA_ARGS__ ); longjmp(ctx->jerr_jmp, EXIT_FAILURE); } }
+//#define json_do_err(CTX) longjmp(ctx->jerr_jmp, EXIT_FAILURE)
+#define json_do_err(CTX) abort()
+#define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), "" STR, ## __VA_ARGS__ ); json_do_err(ctx); } }
 #define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
 
 #pragma mark - constants
 
 #if __STRICT_ANSI__
     #define JINLINE
-    #define JTHREAD_LOCAL __thread
 #else
     #define JINLINE static inline
-    #define JTHREAD_LOCAL __thread
 #endif
-
-JTHREAD_LOCAL char jerr_buf[256] = "";
 
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
@@ -70,9 +57,6 @@ JTHREAD_LOCAL char jerr_buf[256] = "";
 
 #define JMAP_MAX_LOADFACTOR 0.8f
 #define JMAP_IDEAL_LOADFACTOR 0.3f
-
-#define JTRUE 1
-#define JFALSE 0
 
 #define IO_BUF_SIZE 4096
 #define JMAX_SRC_STR 128
@@ -99,10 +83,7 @@ struct jcontext_t
     char buf[IO_BUF_SIZE];
     FILE* file;
 
-    size_t col;
-    size_t line;
-
-    char src[JMAX_SRC_STR];
+    jerr_t* err;
 
     jmp_buf jerr_jmp;
 
@@ -171,6 +152,7 @@ struct _jarray_t
 typedef struct _jarray_t _jarray_t;
 
 #pragma mark - function prototypes
+
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t*);
 JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx );
@@ -178,7 +160,7 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx );
 #pragma mark - memory
 
 //------------------------------------------------------------------------------
-JINLINE void* jcalloc( size_t s, size_t n)
+JINLINE void* jcalloc( size_t s, size_t n )
 {
     assert(s>0 && n>0);
     void* ptr = calloc(s, n);
@@ -213,10 +195,69 @@ JINLINE void* jrealloc( void* ptr, size_t s )
 #pragma mark - util
 
 //------------------------------------------------------------------------------
-void json_err_handler( const char* err )
+JINLINE jbool_t is_prime( size_t x )
 {
-    puts(err);
-    abort();
+    size_t o = 4;
+    for (size_t i = 5; JTRUE; i += o)
+    {
+        size_t q = x / i;
+        if (q < i) return JTRUE;
+        if (x == q * i) return JFALSE;
+        o ^= 6;
+    }
+    return JTRUE;
+}
+
+//------------------------------------------------------------------------------
+JINLINE size_t next_prime(size_t x)
+{
+    // find small prime numbers
+    switch (x)
+    {
+        case 0:
+        case 1:
+        case 2: return 2;
+        case 3: return 3;
+        case 4:
+        case 5: return 5;
+        case 6:
+        case 7: return 7;
+        case 8:
+        case 9:
+        case 10:
+        case 11: return 11;
+        case 12:
+        case 13: return 13;
+        case 14:
+        case 15:
+        case 16:
+        case 17: return 17;
+        case 18:
+        case 19: return 19;
+        case 20:
+        case 21:
+        case 22:
+        case 23: return 23;
+        case 24:
+        case 25:
+        case 26:
+        case 27:
+        case 28:
+        case 29: return 29;
+        default:
+        {
+            // calculate the nearest prime number larger than our current num
+            size_t k = x / 6;
+            size_t i = x - 6 * k;
+            size_t o = i < 2 ? 1 : 5;
+            x = 6 * k + o;
+            for (i = (3 + o) / 2; !is_prime(x); x += i)
+            {
+                i ^= 6;
+            }
+            return x;
+        }
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -229,15 +270,9 @@ JINLINE void print_tabs( size_t cnt, FILE* f)
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t btomb(size_t bytes)
-{
-    return (bytes / (jnum_t)(1024*1024));
-}
-
-//------------------------------------------------------------------------------
 JINLINE size_t grow( size_t min, size_t cur )
 {
-    static const jnum_t GROWTH_FACTOR = 1.5;
+    static const jnum_t GROWTH_FACTOR = 1.618; // (1+sqrt(5))/2 == Golden Ratio
     static const size_t MAX_GROWTH = 1013;
     static const size_t MIN_ALLOC = 13;
 
@@ -440,41 +475,10 @@ JINLINE void _jmap_add_key(jmap_t* map, uint32_t hash, size_t val)
     bucket->slots[bucket->len++] = val;
 }
 
-////------------------------------------------------------------------------------
-//void jmap_debug( jmap_t* map )
-//{
-//    puts("--- maps ---");
-//
-//    for ( size_t i = 0; i < map->bcap; i++ )
-//    {
-//        jmapbucket_t* bucket = &map->buckets[i];
-//        for ( size_t n = 0; n < bucket->len; n++ )
-//        {
-//            size_t idx = bucket->slots[n];
-//
-//            jstr_t* str = &map->strs[idx];
-//            const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
-//            puts(chars);
-//        }
-//    }
-//
-//    puts("--- strings ---");
-//    for ( size_t n = 0; n < map->slen; n++ )
-//    {
-//        jstr_t* str = &map->strs[n];
-//        const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
-//        puts(chars);
-//    }
-//}
-
 //------------------------------------------------------------------------------
 JINLINE void jmap_rehash(jmap_t* map, size_t hint)
 {
     assert(map);
-
-//    puts("----------------------------------------");
-//    jmap_debug(map);
-//    puts("----------------------------------------");
 
     // if there is an empty hashmap, no need to check the load factor!
     if (map->bcap > 0)
@@ -485,8 +489,8 @@ JINLINE void jmap_rehash(jmap_t* map, size_t hint)
     }
 
     // TODO: reuse allocations
-
-    size_t target = ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
+    size_t _target = ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
+    size_t target = next_prime(_target);
 
     size_t max = map->bcap;
     jmapbucket_t* buckets = map->buckets;
@@ -573,12 +577,6 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 }
 
 #pragma mark - jval_t
-
-//------------------------------------------------------------------------------
-void json_print_unicode( const char* str, FILE* f)
-{
-
-}
 
 //------------------------------------------------------------------------------
 void json_print_str( const char* str, FILE* f )
@@ -684,7 +682,6 @@ void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f )
 
         case JTYPE_STR:
             json_print_str(json_get_str(jsn, val), f);
-
             break;
 
         case JTYPE_NUM:
@@ -969,7 +966,9 @@ jval_t* _jobj_get_val(_jobj_t* obj, size_t idx)
 
 //------------------------------------------------------------------------------
 #define jobj_add_key(OBJ, KEY) jobj_add_keyl(OBJ, KEY, strlen(KEY))
-JINLINE jkv_t* jobj_add_keyl( jobj_t o, const char* key, size_t klen )
+
+//------------------------------------------------------------------------------
+JINLINE size_t jobj_add_keyl( jobj_t o, const char* key, size_t klen )
 {
     json_t* jsn = jobj_get_json(o);
     _jobj_t* obj = jobj_get_obj(o);
@@ -977,8 +976,10 @@ JINLINE jkv_t* jobj_add_keyl( jobj_t o, const char* key, size_t klen )
     assert(obj);
     assert(key);
 
+    size_t idx = obj->len++;
+
     _jobj_reserve(obj, 1);
-    jkv_t* kv = _jobj_get_kv(obj, obj->len++);
+    jkv_t* kv = _jobj_get_kv(obj, idx);
     kv->val.type = JTYPE_NIL;
     kv->val.idx = 0;
 
@@ -994,13 +995,17 @@ JINLINE jkv_t* jobj_add_keyl( jobj_t o, const char* key, size_t klen )
         assert (kidx < MAX_KEY_IDX);
         kv->_key = (uint32_t)kidx;
     }
-    return kv;
+    return idx;
 }
 
 //------------------------------------------------------------------------------
-#define jobj_add_kval(OBJ,KEY,VAL) jkv_set_val(jobj_add_key(OBJ, KEY), VAL)
-JINLINE void jkv_set_val(jkv_t* kv, jval_t val )
+#define jobj_add_kval(OBJ,KEY,VAL) jkv_set_val(OBJ, jobj_add_key(OBJ, KEY), VAL)
+
+//------------------------------------------------------------------------------
+JINLINE void jkv_set_val(jobj_t o, size_t idx, jval_t val )
 {
+    _jobj_t* obj = jobj_get_obj(o);
+    jkv_t* kv = _jobj_get_kv(obj, idx);
     assert(kv);
     kv->val.type = (kv->val.type & ~JTYPE_MASK) | (val.type & JTYPE_MASK);
     kv->val.idx = val.idx;
@@ -1491,9 +1496,7 @@ JINLINE void jcontext_init(jcontext_t* ctx)
     ctx->beg = NULL;
     ctx->end = NULL;
     ctx->file = NULL;
-    ctx->col = 0;
-    ctx->line = 0;
-    *ctx->src = '\0';
+    ctx->err = NULL;
     *ctx->buf = '\0';
     jbuf_init(&ctx->strbuf);
 }
@@ -1505,19 +1508,6 @@ JINLINE void jcontext_init_buf(jcontext_t* ctx, void* buf, size_t len)
     jcontext_init(ctx);
     ctx->beg = (char*)buf;
     ctx->end = ctx->beg + len;
-}
-
-//------------------------------------------------------------------------------
-JINLINE void jcontext_set_src(jcontext_t* ctx, const char* src)
-{
-    if (!src)
-    {
-        *ctx->src = '\0';
-        return;
-    }
-
-    strncpy(ctx->src, src, sizeof(ctx->src));
-    ctx->src[sizeof(ctx->src)-1] = '\0';
 }
 
 //------------------------------------------------------------------------------
@@ -1543,7 +1533,7 @@ JINLINE int jpeek( jcontext_t* ctx )
     if (ctx->file && ctx->beg == ctx->end) // need to read more data from file?
     {
         // read file into buffer
-        size_t len = fread(ctx->buf, 1, sizeof(ctx->buf), ctx->file);
+        size_t len = fread(ctx->buf, 1, IO_BUF_SIZE, ctx->file);
         if (len == 0 && feof(ctx->file) != 0)
         {
             json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", strerror(errno));
@@ -1562,7 +1552,7 @@ JINLINE int jpeek( jcontext_t* ctx )
 //------------------------------------------------------------------------------
 JINLINE int jnext( jcontext_t* ctx )
 {
-    ++ctx->col;
+    ++ctx->err->col;
     ++ctx->beg;
     return jpeek(ctx);
 }
@@ -1582,8 +1572,8 @@ JINLINE void parse_whitespace( jcontext_t* ctx )
                 break;
 
             case '\n':
-                ctx->col = 0;
-                ctx->line++;
+                ctx->err->col = 0;
+                ctx->err->line++;
                 break;
 
             default:
@@ -1657,16 +1647,6 @@ JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
 }
 
 //------------------------------------------------------------------------------
-JINLINE void parse_literal(json_t* jsn, jcontext_t* ctx, const char* str)
-{
-    int ch = ch = jnext(ctx);
-    for ( const char* s = ++str; *s; s++, ch = jnext(ctx))
-    {
-        json_assert(ch == *s, "expected string literal: '%s'", str);
-    }
-}
-
-//------------------------------------------------------------------------------
 JINLINE jnum_t parse_sign( jcontext_t* ctx )
 {
     int ch = jpeek(ctx);
@@ -1728,8 +1708,10 @@ JINLINE jnum_t parse_digits( jcontext_t* ctx )
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_num( jcontext_t* ctx )
+JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
 {
+    jbool_t isint = JTRUE;
+
     // +/-
     jnum_t sign = parse_sign(ctx);
 
@@ -1741,6 +1723,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx )
     {
         case '.':
         {
+            isint = JFALSE;
             jnext(ctx);
             size_t places = 1;
             jnum_t fract = parse_digitsp(ctx, &places);
@@ -1758,6 +1741,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx )
         case 'e':
         case 'E':
         {
+            isint = JFALSE;
             jnext(ctx);
             jnum_t esign = parse_sign(ctx);
             jnum_t digits = parse_digits(ctx);
@@ -1768,6 +1752,8 @@ JINLINE jnum_t parse_num( jcontext_t* ctx )
         default:
             break;
     }
+
+    *_isint = isint;
 
     // apply sign
     return sign * num;
@@ -1965,13 +1951,13 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
                 parse_str(&ctx->strbuf, ctx);
                 const char* key = ctx->strbuf.ptr;
 
-                jkv_t* kv = jobj_add_keyl(obj, key, ctx->strbuf.len);
+                size_t kvidx = jobj_add_keyl(obj, key, ctx->strbuf.len);
 
                 parse_whitespace(ctx);
                 json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
                 parse_whitespace(ctx);
 
-                jkv_set_val(kv, parse_val(jsn, ctx));
+                jkv_set_val(obj, kvidx, parse_val(jsn, ctx));
                 break;
             }
         }
@@ -2006,15 +1992,22 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
         }
 
         case 't': // true
-            parse_literal(jsn, ctx, "true");
+            json_assert( jnext(ctx) == 'r', "expected literal 'true'");
+            json_assert( jnext(ctx) == 'u', "expected literal 'true'");
+            json_assert( jnext(ctx) == 'e', "expected literal 'true'"); jnext(ctx);
             return (jval_t){JTYPE_TRUE, 0};
 
         case 'f': // false
-            parse_literal(jsn, ctx, "false");
+            json_assert( jnext(ctx) == 'a', "expected literal 'false'");
+            json_assert( jnext(ctx) == 'l', "expected literal 'false'");
+            json_assert( jnext(ctx) == 's', "expected literal 'false'");
+            json_assert( jnext(ctx) == 'e', "expected literal 'false'"); jnext(ctx);
             return (jval_t){JTYPE_FALSE, 0};
 
         case 'n': // null
-            parse_literal(jsn, ctx, "null");
+            json_assert( jnext(ctx) == 'u', "expected literal 'null'");
+            json_assert( jnext(ctx) == 'l', "expected literal 'null'");
+            json_assert( jnext(ctx) == 'l', "expected literal 'null'"); jnext(ctx);
             return (jval_t){JTYPE_NIL, 0};
 
         case '-': // number
@@ -2029,7 +2022,8 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
         case '8':
         case '9':
         {
-            jnum_t num = parse_num(ctx);
+            jbool_t isint;
+            jnum_t num = parse_num(ctx, &isint);
             return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
         }
 
@@ -2044,15 +2038,28 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
 #pragma mark - io
 
 //------------------------------------------------------------------------------
-void print_mem_usage()
+void jerr_init( jerr_t* err )
 {
-#if ( defined(__APPLE__) && defined(__MACH__) )
-    struct task_basic_info t_info;
-    mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
-    task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count);
-    printf("[RAM]: Actual: %0.1f MB Virtual: %0.1f MB\n", btomb(t_info.resident_size), btomb(t_info.virtual_size));
-#endif
+    assert(err);
+    err->col = 0;
+    err->line = 0;
+    err->src[0] = '\0';
+    err->msg[0] = '0';
+}
 
+//------------------------------------------------------------------------------
+void jerr_init_src( jerr_t* err, const char* src )
+{
+    jerr_init(err);
+
+    if (!src)
+    {
+        *err->src = '\0';
+        return;
+    }
+
+    strncpy(err->src, src, sizeof(err->src));
+    err->src[sizeof(err->src)-1] = '\0';
 }
 
 //------------------------------------------------------------------------------
@@ -2081,19 +2088,26 @@ int json_parse_file( json_t* jsn, jcontext_t* ctx )
 }
 
 //------------------------------------------------------------------------------
-JINLINE const char* _json_load_file(json_t* jsn, const char* src, FILE* file)
+JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* err)
 {
     assert(jsn);
-    if (!file) return "file is null";
+    assert(err);
+    if (!file)
+    {
+        strncpy(err->msg, "file descriptor is null", sizeof(err->msg));
+        return 1;
+    }
 
     jcontext_t ctx;
     jcontext_init_file(&ctx, file);
-    jcontext_set_src(&ctx, src);
+
+    jerr_init_src(err, src);
+    ctx.err = err;
 
     print_mem_usage();
 
-    jerr_buf[0] = '\0'; // reset the error
-    if (json_parse_file(jsn, &ctx) != 0)
+    int status = json_parse_file(jsn, &ctx);
+    if (status != 0)
     {
         json_destroy(jsn); jsn = NULL;
     }
@@ -2103,18 +2117,20 @@ JINLINE const char* _json_load_file(json_t* jsn, const char* src, FILE* file)
     print_mem_usage();
     print_memory_stats(jsn);
 
-    return *jerr_buf ? jerr_buf : NULL;
+    return status;
 }
 
 //------------------------------------------------------------------------------
-JINLINE const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen)
+JINLINE int _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen, jerr_t* err)
 {
     assert(jsn);
     assert(buf);
 
     jcontext_t ctx;
     jcontext_init_buf(&ctx, buf, blen);
-    jcontext_set_src(&ctx, src);
+
+    jerr_init_src(err, src);
+    ctx.err = err;
 
     // pre-allocate data based on estimate size
     size_t est = grow(ceilf(blen*0.01), 0);
@@ -2126,8 +2142,8 @@ JINLINE const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size
 
     print_mem_usage();
 
-    jerr_buf[0] = '\0'; // reset the error
-    if (json_parse_file(jsn, &ctx) != 0)
+    int status = json_parse_file(jsn, &ctx);
+    if (status != 0)
     {
         json_destroy(jsn); jsn = NULL;
     }
@@ -2141,11 +2157,11 @@ JINLINE const char* _json_load_buf(json_t* jsn, const char* src, void* buf, size
         print_memory_stats(jsn);
     }
 
-    return *jerr_buf ? jerr_buf : NULL;
+    return status;
 }
 
 //------------------------------------------------------------------------------
-const char* json_load_file(json_t* jsn, FILE* file)
+int json_load_file(json_t* jsn, FILE* file, jerr_t* err)
 {
 #if __LINUX__
     int fd = fileno(file);
@@ -2164,64 +2180,76 @@ const char* json_load_file(json_t* jsn, FILE* file)
     }
 #endif
 
-    return _json_load_file(jsn, src, file);
+    return _json_load_file(jsn, src, file, err);
 }
 
 //------------------------------------------------------------------------------
-const char* json_load_buf(json_t* jsn, void* buf, size_t blen)
+int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err)
 {
     char src[JMAX_SRC_STR];
     jsnprintf(src, sizeof(src), "%p", buf);
-    return _json_load_buf(jsn, src, buf, blen);
+    return _json_load_buf(jsn, src, buf, blen, err);
 }
 
 //------------------------------------------------------------------------------
-const char* json_load_path(json_t* jsn, const char* path)
+int json_load_path(json_t* jsn, const char* path, jerr_t* err)
 {
     assert(jsn);
     assert(path);
 
 #if JPOSIX
     int fd = open(path, O_RDONLY);
-    if (!fd) return "could not read file";
+    if (!fd)
+    {
+        strncpy(err->msg, "could not read file", sizeof(err->msg));
+        return 1;
+    }
 
     struct stat st;
     int rt = fstat(fd, &st);
     if (rt != 0)
     {
         close(fd);
-        return "could not read file";
+        strncpy(err->msg, "could not read file", sizeof(err->msg));
+        return 1;
     }
 
     size_t len = st.st_size;
     if (len == 0)
     {
         close(fd);
-        return "could not parse empty file";
+        strncpy(err->msg, "file is empty", sizeof(err->msg));
+        return 1;
     }
 
     void* mem = mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
-    const char* err = _json_load_buf(jsn, path, mem, len);
+    int status = _json_load_buf(jsn, path, mem, len, err);
     munmap(mem, len);
 
     close(fd);
 
 #else
     FILE* file = fopen(path, "r");
-    if (!file) return "could not open file for read";
-    const char* err = _json_load_file(jsn, path, file);
+    if (!file)
+    {
+        strncpy(err->msg, "could not read file", sizeof(err->msg));
+        return 1;
+    }
+
+    int status = _json_load_file(jsn, path, file, err);
     fclose(file);
 #endif
 
     print_mem_usage();
 
-    return err;
+    return status;
 }
 
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t* jsn)
 {
     assert(jsn);
+
 #define PRINT_MEMORY 1
 #if PRINT_MEMORY
     size_t total = 0;

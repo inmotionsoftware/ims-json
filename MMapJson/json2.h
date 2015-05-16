@@ -25,6 +25,10 @@ typedef uint8_t jbool_t;
 typedef uint32_t jsize_t;
 
 //------------------------------------------------------------------------------
+#define JTRUE  ((jbool_t)1)
+#define JFALSE ((jbool_t)0)
+
+//------------------------------------------------------------------------------
 struct jstr_t;
 struct _jobj_t;
 struct _jarray_t;
@@ -125,6 +129,17 @@ struct jmap_t
 typedef struct jmap_t jmap_t;
 
 //------------------------------------------------------------------------------
+struct jerr_t
+{
+    size_t line;
+    size_t col;
+    char src[255];
+    char msg[255];
+};
+typedef struct jerr_t jerr_t;
+#define jerr_fprint(FILE, JERR) fprintf(FILE, "%s:%zu:%zu: %s", (JERR)->src, (JERR)->line+1, (JERR)->col, (JERR)->msg)
+
+//------------------------------------------------------------------------------
 struct json_t
 {
     struct
@@ -153,9 +168,9 @@ struct json_t
 typedef struct json_t json_t;
 
 json_t* json_new();
-const char* json_load_path(json_t* jsn, const char* path);
-const char* json_load_file(json_t* jsn, FILE* file);
-const char* json_load_buf(json_t* jsn, void* buf, size_t blen);
+int json_load_path(json_t* jsn, const char* path, jerr_t* err);
+int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
+int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
 void json_print(json_t* j, FILE*);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
