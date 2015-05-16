@@ -579,6 +579,64 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 #pragma mark - jval_t
 
 //------------------------------------------------------------------------------
+const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
+{
+    uint32_t codepoint = 0;
+    if ( (*str&0xFF) < 0x80)
+    {
+        codepoint = *str;
+    }
+    else if ( (*str & 0xE0) == 0xC0 )
+    {
+        // 2 bytes
+        codepoint = (*str++&0x1F) << 5;
+        codepoint = (codepoint << 6) | (*str&0x3F);
+    }
+    else if ( (*str & 0xF0) == 0xE0 )
+    {
+        // 3 bytes
+        codepoint = (*str++&0xF) << 4;
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str&0x3F);
+    }
+    else if ( (*str & 0xF8) == 0xF0 )
+    {
+        // 4 bytes
+        codepoint = (*str++&0x7) << 3;
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str&0x3F);
+    }
+    else if ( (*str & 0xFC) == 0xF8 )
+    {
+        // 5 bytes
+        codepoint = (*str++&0x3) << 2;
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str&0x3F);
+    }
+    else if ( (*str & 0xFE) == 0xFC )
+    {
+        // 6 bytes
+        codepoint = (*str++&0x1) << 1;
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str++&0x3F);
+        codepoint = (codepoint << 6) | (*str&0x3F);
+    }
+    else
+    {
+        assert(0);
+    }
+
+    assert(_codepoint);
+    *_codepoint = codepoint;
+    return str;
+}
+
+//------------------------------------------------------------------------------
 void json_print_str( const char* str, FILE* f )
 {
     putc('"', f);
@@ -614,54 +672,16 @@ void json_print_str( const char* str, FILE* f )
             case '/':
             default:
             {
-                if (ch < 0x80)
+                uint32_t codepoint;
+                const char* next = utf8_codepoint(str, &codepoint);
+                if (next != str)
                 {
-                    putc(ch, f);
+                    fprintf(f, "\\u%X", codepoint);
+                    str = next;
                 }
                 else
                 {
-                    uint32_t codepoint = 0;
-                    if ( (ch & 0xE0) == 0xC0 )
-                    {
-                        // 2 bytes
-                        codepoint = (*str++&0x1F) << 5;
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                    }
-                    else if ( (ch & 0xF0) == 0xE0 )
-                    {
-                        // 3 bytes
-                        codepoint = (*str++&0xF) << 4;
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                    }
-                    else if ( (ch & 0xF8) == 0xF0 )
-                    {
-                        // 4 bytes
-                        codepoint = (*str++&0x7) << 3;
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                    }
-                    else if ( (ch & 0xFC) == 0xF8 )
-                    {
-                        // 5 bytes
-                        codepoint = (*str++&0x3) << 2;
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                    }
-                    else if ( (ch & 0xFE) == 0xFC )
-                    {
-                        // 6 bytes
-                        codepoint = (*str++&0x1) << 1;
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                        codepoint = (codepoint << 6) | (*str++&0x3F);
-                    }
-                    fprintf(f, "\\u%X", codepoint);
+                    putc(ch, f);
                 }
                 break;
             }

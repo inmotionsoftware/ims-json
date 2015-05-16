@@ -116,6 +116,9 @@ void jarray_print( jarray_t array, size_t depth, FILE* f );
 #define jarray_get_num(A, IDX) json_get_num(jarray_get_json(A), jarray_get(A, IDX))
 
 //------------------------------------------------------------------------------
+const char* utf8_codepoint( const char* str, uint32_t* _codepoint );
+
+//------------------------------------------------------------------------------
 struct jmap_t
 {
     size_t blen;

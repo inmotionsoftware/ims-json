@@ -555,54 +555,16 @@ namespace ims
                 case '/':
                 default:
                 {
-                    if (ch < 0x80)
+                    uint32_t codepoint;
+                    const char* next = utf8_codepoint(str, &codepoint);
+                    if (next != str)
                     {
-                        os << (char)ch;
+                        os << std::hex << codepoint;
+                        str = next;
                     }
                     else
                     {
-                        uint32_t codepoint = 0;
-                        if ( (ch & 0xE0) == 0xC0 )
-                        {
-                            // 2 bytes
-                            codepoint = (*str++&0x1F) << 5;
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                        }
-                        else if ( (ch & 0xF0) == 0xE0 )
-                        {
-                            // 3 bytes
-                            codepoint = (*str++&0xF) << 4;
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                        }
-                        else if ( (ch & 0xF8) == 0xF0 )
-                        {
-                            // 4 bytes
-                            codepoint = (*str++&0x7) << 3;
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                        }
-                        else if ( (ch & 0xFC) == 0xF8 )
-                        {
-                            // 5 bytes
-                            codepoint = (*str++&0x3) << 2;
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                        }
-                        else if ( (ch & 0xFE) == 0xFC )
-                        {
-                            // 6 bytes
-                            codepoint = (*str++&0x1) << 1;
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                            codepoint = (codepoint << 6) | (*str++&0x3F);
-                        }
-                        os << std::hex << codepoint;
+                        os << (char)ch;
                     }
                     break;
                 }
