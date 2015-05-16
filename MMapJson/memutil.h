@@ -9,6 +9,9 @@
 #ifndef __MMapJson__memutil__
 #define __MMapJson__memutil__
 
-#include <stdio.h>
+#include <stdint.h>
+
+extern void print_mem_usage();
+extern double btomb(size_t bytes);
 
 #endif /* defined(__MMapJson__memutil__) */
