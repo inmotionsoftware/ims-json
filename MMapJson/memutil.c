@@ -7,7 +7,7 @@
 //
 
 #include "memutil.h"
-#include "json2.h"
+#include "json.h"
 #include <mach/vm_statistics.h>
 #include <mach/mach_types.h>
 #include <mach/mach_init.h>

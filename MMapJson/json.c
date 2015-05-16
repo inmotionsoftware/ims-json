@@ -6,7 +6,7 @@
 //  Copyright (c) 2015 InMotion Software, LLC. All rights reserved.
 //
 
-#include "json2.h"
+#include "json.h"
 #include "memutil.h"
 #include <math.h>
 #include <errno.h>

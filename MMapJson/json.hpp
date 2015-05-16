@@ -18,7 +18,7 @@
 
 extern "C"
 {
-    #include "json2.h"
+    #include "json.h"
 }
 
 namespace ims

@@ -10,7 +10,7 @@
 
 extern "C"
 {
-    #include "json2.h"
+    #include "json.h"
 }
 
 #include "json.hpp"
