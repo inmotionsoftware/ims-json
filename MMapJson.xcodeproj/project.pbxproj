@@ -26,7 +26,6 @@
 
 /* Begin PBXFileReference section */
 		E71609FF1ADB0B5D0014729D /* citylots.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = citylots.json; sourceTree = "<group>"; };
-		E756B0401AE14C64004ECF44 /* json.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json.h; sourceTree = "<group>"; };
 		E756B0421AE55228004ECF44 /* json2.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = json2.c; sourceTree = "<group>"; };
 		E756B0431AE55228004ECF44 /* json2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json2.h; sourceTree = "<group>"; };
 		E77066571AE83EBF00707E5C /* small.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = small.json; sourceTree = "<group>"; };
@@ -76,7 +75,6 @@
 				E7BCE8141AE70790004E87D3 /* medium.json */,
 				E77A13E51AD6E35A001068F1 /* test.json */,
 				E77A13DE1AD5D443001068F1 /* main.cpp */,
-				E756B0401AE14C64004ECF44 /* json.h */,
 				E756B0431AE55228004ECF44 /* json2.h */,
 				E756B0421AE55228004ECF44 /* json2.c */,
 				E79FE14F1AFBE698007AC026 /* json.hpp */,
