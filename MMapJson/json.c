@@ -919,7 +919,7 @@ jbool_t json_get_bool( json_t* jsn, jval_t val )
 //------------------------------------------------------------------------------
 jobj_t json_get_obj( json_t* jsn, jval_t val )
 {
-    if (!jval_is_obj(val)) return (jobj_t){.json=NULL, .idx=0};
+    if (!jval_is_obj(val)) return JNULL_OBJ;
     assert( _json_get_obj(jsn, val.idx) );
     return (jobj_t){.json=jsn, .idx=val.idx};
 }
@@ -927,7 +927,7 @@ jobj_t json_get_obj( json_t* jsn, jval_t val )
 //------------------------------------------------------------------------------
 jarray_t json_get_array( json_t* jsn, jval_t val )
 {
-    if (!jval_is_array(val)) return (jarray_t){.json=NULL, .idx=0};
+    if (!jval_is_array(val)) return JNULL_ARRAY;
     assert( _json_get_array(jsn, val.idx) );
     return (jarray_t){.json=jsn, .idx=val.idx};
 }
@@ -1479,7 +1479,8 @@ JINLINE void jbuf_add( jbuf_t* buf, char ch )
 //------------------------------------------------------------------------------
 json_t* json_init( json_t* jsn )
 {
-    assert(jsn);
+    if (!jsn) return NULL;
+
     jmap_init(&jsn->strmap);
 
     // nums
@@ -1548,12 +1549,16 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata)
 }
 
 //------------------------------------------------------------------------------
-void json_print(json_t* jsn, int flags, print_func p, void* udata)
+int json_print(json_t* jsn, int flags, print_func p, void* udata)
 {
     assert(jsn);
     jprint_t ctx;
     jprint_init_flags(&ctx, flags, p, udata);
     _jobj_print(&ctx, json_root(jsn), 0);
+
+    // TODO
+    int rt = 0;
+    return rt;
 }
 
 //------------------------------------------------------------------------------
@@ -1567,11 +1572,28 @@ char* json_to_str(json_t* jsn, int flags)
 }
 
 //------------------------------------------------------------------------------
-void json_print_file(json_t* jsn, int flags, FILE* f)
+int json_print_path(json_t* jsn, int flags, const char* path)
+{
+    assert(jsn);
+    assert(path);
+    FILE* file = fopen(path, "w");
+    if (!file)
+    {
+        // TODO: error
+        return -1;
+    }
+    int rt = json_print_file(jsn, flags, file);
+    fclose(file);
+
+    return rt; // TODO
+}
+
+//------------------------------------------------------------------------------
+int json_print_file(json_t* jsn, int flags, FILE* f)
 {
     assert(jsn);
     assert(f);
-    json_print(jsn, flags, _json_write_file, f);
+    return json_print(jsn, flags, _json_write_file, f);
 }
 
 //------------------------------------------------------------------------------
