@@ -621,7 +621,7 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 #pragma mark - jval_t
 
 //------------------------------------------------------------------------------
-const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
+JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
 {
     uint32_t codepoint = 0;
     if ( (*str&0xFF) < 0x80)
@@ -679,7 +679,7 @@ const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
 }
 
 //------------------------------------------------------------------------------
-void json_print_str( jprint_t* ctx, const char* str )
+JINLINE void json_print_str( jprint_t* ctx, const char* str )
 {
     ctx->print(ctx->udata, "\"");
 
@@ -728,18 +728,6 @@ void json_print_str( jprint_t* ctx, const char* str )
                     char buf[11];
                     jsnprintf(buf, sizeof(buf), "\\u%X", codepoint);
                     ctx->print(ctx->udata, buf);
-
-//                    //TODO: remove trailing 0's...
-//                    static const char* HEX[] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"};
-//                    ctx->print(ctx->udata, "\\u");
-//                    ctx->print(ctx->udata, HEX[codepoint>>28 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint>>24 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint>>20 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint>>16 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint>>12 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint>>8 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint>>4 & 0xF]);
-//                    ctx->print(ctx->udata, HEX[codepoint & 0xF]);
                     str = next;
                 }
                 else

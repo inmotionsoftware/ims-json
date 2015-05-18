@@ -47,6 +47,7 @@ enum jtype
 };
 #define JTYPE_MASK 0x7
 
+//------------------------------------------------------------------------------
 static const int JPRINT_PRETTY = 0x1;
 static const int JPRINT_ESC_UNI = 0x2;
 typedef void (*print_func)( void* ctx, const char* );
