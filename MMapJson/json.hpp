@@ -165,7 +165,8 @@ namespace ims
         setter operator[] ( const char* key ) { return setter(key, *this); }
         obj add_obj( const char* key ) { return jobj_add_obj(m_obj, key); }
         class array add_array( const char* key );
-        std::ostream& write ( std::ostream& os, size_t depth = 0 ) const;
+
+        friend std::ostream& operator<< ( std::ostream& os, const obj& o );
 
     protected:
 
@@ -217,7 +218,6 @@ namespace ims
         template < typename T, typename... ARGS >
         void add( const T& t, const ARGS&... args ) { push_back(t); add(args...); }
 
-        std::ostream& write ( std::ostream& os, size_t depth = 0 ) const;
         iterator begin() const { return iterator(*this, 0); }
         iterator end() const { return iterator(*this, size()); }
         bool operator== ( const array& a ) const { return m_array.json == a.m_array.json && m_array.idx == a.m_array.idx; }
@@ -242,6 +242,8 @@ namespace ims
         }
 
         array& push_back( const val& val );
+
+        friend std::ostream& operator<< ( std::ostream& os, const array& a );
 
     protected:
 
@@ -335,6 +337,19 @@ namespace ims
 
         obj root() const { return json_root(m_jsn); }
 
+        std::string str( int flags = JPRINT_PRETTY ) const
+        {
+            std::string str;
+            json_print(m_jsn, flags, [](void* ctx, const char* cstr)
+            {
+                std::string& str = *(std::string*)ctx;
+                str += cstr;
+            }, &str);
+            return std::move(str);
+        }
+
+        friend std::ostream& operator<< ( std::ostream& os, const json& j );
+
     protected:
         json( json_t* j )
             : m_jsn(j)
@@ -344,6 +359,12 @@ namespace ims
 
         json_t* m_jsn;
     };
+
+    //--------------------------------------------------------------------------
+    static inline void ostream_write( void* ctx, const char* str )
+    {
+        *((std::ostream*)ctx) << str;
+    }
 
     //--------------------------------------------------------------------------
     class val
@@ -520,61 +541,6 @@ namespace ims
         };
     };
 
-    std::ostream& unicode_write( std::ostream& os, const char* str )
-    {
-        os << '"';
-
-        for ( int ch = *str&0xFF; ch; ch = *++str&0xFF )
-        {
-            switch (ch)
-            {
-                case '\\':
-                    os << "\\\\";
-                    break;
-
-                case '"':
-                    os << "\\\"";
-                    break;
-
-                case '\r':
-                    os << "\\r";
-                    break;
-
-                case '\n':
-                    os << "\\n";
-                    break;
-
-                case '\f':
-                    os << "\\f";
-                    break;
-
-                case '\t':
-                    os << "\\t";
-                    break;
-
-                case '/':
-                default:
-                {
-                    uint32_t codepoint;
-                    const char* next = utf8_codepoint(str, &codepoint);
-                    if (next != str)
-                    {
-                        os << std::hex << codepoint;
-                        str = next;
-                    }
-                    else
-                    {
-                        os << (char)ch;
-                    }
-                    break;
-                }
-            }
-        }
-
-        os << '"';
-        return os;
-    }
-
     //--------------------------------------------------------------------------
     array& array::push_back( const val& v )
     {
@@ -706,36 +672,7 @@ namespace ims
 
         int type() const { return jval_type(m_val); }
 
-        std::ostream& write(std::ostream& os, size_t depth = 0 ) const
-        {
-            switch (type())
-            {
-                case JTYPE_NIL:
-                    os << "null";
-                    break;
-                case JTYPE_STR:
-                    unicode_write(os, *this);
-                    break;
-                case JTYPE_NUM:
-                    os << (jnum_t)*this;
-                    break;
-                case JTYPE_ARRAY:
-                    ((array)*this).write(os, depth);
-                    break;
-                case JTYPE_OBJ:
-                    ((obj)*this).write(os, depth);
-                    break;
-                case JTYPE_TRUE:
-                    os << "true";
-                    break;
-                case JTYPE_FALSE:
-                    os << "false";
-                    break;
-                default:
-                    break;
-            }
-            return os;
-        }
+        friend std::ostream& operator<< ( std::ostream& os, const const_val& val );
 
     protected:
         json_t* m_jsn;
@@ -743,82 +680,33 @@ namespace ims
     };
 
     //--------------------------------------------------------------------------
-    static inline std::ostream& write_tabs( std::ostream& os, size_t n )
-    {
-        while (n--)
-        {
-            os << "    ";
-        }
-        return os;
-    }
-
-    //--------------------------------------------------------------------------
-    std::ostream& array::write ( std::ostream& os, size_t depth ) const
-    {
-        os << '{';
-        for ( auto it = this->begin(), next = it, end = this->end(); it != end; ++it )
-        {
-            os << std::endl;
-            write_tabs(os, depth+1);
-
-            const auto& val = (*it);
-            val.write(os, depth+1);
-            if (++next != end) os << ',';
-        }
-        os << std::endl;
-        write_tabs(os, depth);
-        os << '}';
-
-        return os;
-    }
-
-    //--------------------------------------------------------------------------
     std::ostream& operator<< ( std::ostream& os, const obj& o )
     {
-        return o.write(os);
+        jobj_print(o, JPRINT_PRETTY, ostream_write, &os);
+        return os;
     }
 
     //--------------------------------------------------------------------------
     std::ostream& operator<< ( std::ostream& os, const array& a )
     {
-        return a.write(os);
-    }
-
-    //--------------------------------------------------------------------------
-    std::ostream& operator<< ( std::ostream& os, const const_val& v )
-    {
-        return v.write(os);
-    }
-
-    //--------------------------------------------------------------------------
-    std::ostream& operator<< ( std::ostream& os, const json& j )
-    {
-        if (j) j.root().write(os);
+        jarray_print(a, JPRINT_PRETTY, ostream_write, &os);
         return os;
     }
 
     //--------------------------------------------------------------------------
-    std::ostream& obj::write ( std::ostream& os, size_t depth ) const
+    std::ostream& operator<< ( std::ostream& os, const const_val& val )
     {
-        os << '{';
-        for ( auto it = this->begin(), next = it, end = this->end(); it != end; ++it )
+        jval_print(val.m_jsn, val.m_val, JPRINT_PRETTY, ostream_write, &os);
+        return os;
+    }
+
+    //--------------------------------------------------------------------------
+    std::ostream& operator<< ( std::ostream& os, const json& jsn )
+    {
+        if (jsn)
         {
-            os << std::endl;
-            write_tabs(os, depth+1);
-
-            const auto& pair = (*it);
-            os << '"';
-            unicode_write(os, pair.first.c_str());
-            os << "\": ";
-            pair.second.write(os, depth+1);
-
-            if (++next != end) os << ',';
+            json_print(jsn.m_jsn, JPRINT_PRETTY, ostream_write, &os);
         }
-
-        os << std::endl;
-        write_tabs(os, depth);
-        os << '}';
-        
         return os;
     }
 

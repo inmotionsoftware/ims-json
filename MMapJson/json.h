@@ -47,6 +47,10 @@ enum jtype
 };
 #define JTYPE_MASK 0x7
 
+static const int JPRINT_PRETTY = 0x1;
+static const int JPRINT_ESC_UNI = 0x2;
+typedef void (*print_func)( void* ctx, const char* );
+
 //------------------------------------------------------------------------------
 struct jval_t
 {
@@ -55,8 +59,7 @@ struct jval_t
 };
 typedef struct jval_t jval_t;
 
-void jval_print( struct json_t* jsn, jval_t val, size_t depth, FILE* f );
-
+void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* udata);
 #define jval_type(VAL)      (VAL.type & JTYPE_MASK)
 #define jval_is_str(VAL)    (jval_type(VAL) == JTYPE_STR)
 #define jval_is_num(VAL)    (jval_type(VAL) == JTYPE_NUM)
@@ -84,7 +87,7 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key );
 size_t jobj_findl( jobj_t obj, const char* key, size_t klen );
 size_t jobj_len( jobj_t obj );
 const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
-void jobj_print(jobj_t obj, size_t depth, FILE* f);
+void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
 
 #define jobj_get_json(OBJ) (OBJ).json
 #define jobj_find(OBJ, KEY) jobj_findl(OBJ, KEY, strlen(KEY))
@@ -108,15 +111,12 @@ jarray_t jarray_add_array(jarray_t a);
 jobj_t jarray_add_obj(jarray_t a);
 size_t jarray_len(jarray_t a);
 jval_t jarray_get(jarray_t a, size_t idx);
-void jarray_print( jarray_t array, size_t depth, FILE* f );
+void jarray_print(jarray_t array, int flags, print_func p, void* udata);
 
 #define jarray_add_str(A, STR) jarray_add_strl(A, STR, strlen(STR))
 #define jarray_get_json(A) (A).json
 #define jarray_get_str(A, IDX) json_get_str(jarray_get_json(A), jarray_get(A, IDX))
 #define jarray_get_num(A, IDX) json_get_num(jarray_get_json(A), jarray_get(A, IDX))
-
-//------------------------------------------------------------------------------
-const char* utf8_codepoint( const char* str, uint32_t* _codepoint );
 
 //------------------------------------------------------------------------------
 struct jmap_t
@@ -174,7 +174,9 @@ json_t* json_new();
 int json_load_path(json_t* jsn, const char* path, jerr_t* err);
 int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
 int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
-void json_print(json_t* j, FILE*);
+void json_print_file(json_t* j, int flags, FILE*);
+void json_print(json_t* j, int flags, print_func p, void* udata);
+char* json_to_str(json_t* jsn, int flags);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
 const char* json_get_str( json_t* jsn, jval_t val );

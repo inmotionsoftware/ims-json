@@ -58,7 +58,8 @@ static void test_read()
     assert(jsn);
     if (jsn->strmap.slen < 50)
     {
-        json_print(jsn, stdout);
+        json_print_file(jsn, JPRINT_PRETTY, stdout);
+        putc('\n', stdout);
     }
     json_free(jsn); jsn = NULL;
 }
@@ -97,7 +98,8 @@ static void test_construction()
         }
     }
 
-    json_print(jsn, stdout);
+    json_print_file(jsn, JPRINT_PRETTY, stdout);
+    putc('\n', stdout);
 }
 
 //------------------------------------------------------------------------------
@@ -133,7 +135,9 @@ static void test_construction_cpp()
         std::cout << (*it).first << ": " << (*it).second << std::endl;
     }
 
+    std::cout << "--------------------- C++ ---------------------" << std::endl;
     std::cout << jsn << std::endl;
+    std::cout << "-----------------------------------------------" << std::endl;
 }
 
 //------------------------------------------------------------------------------
@@ -156,9 +160,9 @@ int main(int argc, const char * argv[])
 //    double t2 = time_call(test_construction);
 //    log_debug("completed in: %f secs", t2);
 //
-//    log_debug("starting 'test_construction_cpp'");
-//    double t3 = time_call(test_construction_cpp);
-//    log_debug("completed in: %f secs", t3);
+    log_debug("starting 'test_construction_cpp'");
+    double t3 = time_call(test_construction_cpp);
+    log_debug("completed in: %f secs", t3);
 
 //    auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
 //    if (j2)
