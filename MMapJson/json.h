@@ -85,6 +85,7 @@ void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen );
 void jobj_add_bool( jobj_t obj, const char* key, jbool_t b );
 void jobj_add_nil( jobj_t obj, const char* key );
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
+
 size_t jobj_findl( jobj_t obj, const char* key, size_t klen );
 size_t jobj_len( jobj_t obj );
 const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
@@ -102,8 +103,9 @@ struct jarray_t
 };
 typedef struct jarray_t jarray_t;
 
-void jarray_reserve( jarray_t a, size_t cap );
 jarray_t jobj_add_array( jobj_t obj, const char* key );
+
+void jarray_reserve( jarray_t a, size_t cap );
 void jarray_add_num( jarray_t a, jnum_t num );
 void jarray_add_strl( jarray_t a, const char* str, size_t slen );
 void jarray_add_bool( jarray_t a, jbool_t b );
@@ -171,7 +173,8 @@ struct json_t
 };
 typedef struct json_t json_t;
 
-json_t* json_new();
+#define json_new() json_init((json_t*)calloc(1, sizeof(json_t)))
+json_t* json_init( json_t* jsn );
 int json_load_path(json_t* jsn, const char* path, jerr_t* err);
 int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
 int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
@@ -180,6 +183,7 @@ void json_print(json_t* j, int flags, print_func p, void* udata);
 char* json_to_str(json_t* jsn, int flags);
 void json_free(json_t* j);
 jobj_t json_root(json_t* j);
+
 const char* json_get_str( json_t* jsn, jval_t val );
 jnum_t json_get_num( json_t* jsn, jval_t val );
 jbool_t json_get_bool( json_t* jsn, jval_t val );

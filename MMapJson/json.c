@@ -38,8 +38,8 @@
 #endif
 
 #define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
-//#define json_do_err(CTX) longjmp(ctx->jerr_jmp, EXIT_FAILURE)
-#define json_do_err(CTX) abort()
+#define json_do_err(CTX) longjmp(ctx->jerr_jmp, EXIT_FAILURE)
+//#define json_do_err(CTX) abort()
 #define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), "" STR, ## __VA_ARGS__ ); json_do_err(ctx); } }
 #define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
 
@@ -1477,7 +1477,7 @@ JINLINE void jbuf_add( jbuf_t* buf, char ch )
 #pragma mark - json_t
 
 //------------------------------------------------------------------------------
-void json_init( json_t* jsn )
+json_t* json_init( json_t* jsn )
 {
     assert(jsn);
     jmap_init(&jsn->strmap);
@@ -1499,13 +1499,7 @@ void json_init( json_t* jsn )
 
     size_t idx = json_add_obj(jsn);
     assert(idx == 0);
-}
 
-//------------------------------------------------------------------------------
-json_t* json_new()
-{
-    json_t* jsn = (json_t*)jcalloc(1, sizeof(json_t));
-    json_init(jsn);
     return jsn;
 }
 
