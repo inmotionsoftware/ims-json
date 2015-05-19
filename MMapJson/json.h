@@ -23,16 +23,21 @@ namespace ims {
 typedef double jnum_t;
 typedef uint8_t jbool_t;
 typedef uint32_t jsize_t;
-
-//------------------------------------------------------------------------------
-#define JTRUE  ((jbool_t)1)
-#define JFALSE ((jbool_t)0)
-
-//------------------------------------------------------------------------------
 struct jstr_t;
 struct _jobj_t;
 struct _jarray_t;
 struct json_t;
+
+//------------------------------------------------------------------------------
+/**
+    Boolean value representing TRUE.
+*/
+#define JTRUE  ((jbool_t)1)
+
+/**
+    Boolean value representing FALSE.
+*/
+#define JFALSE ((jbool_t)0)
 
 //------------------------------------------------------------------------------
 /**
@@ -72,6 +77,10 @@ static const int JPRINT_ESC_UNI = 0x2;
 typedef void (*print_func)( void* ctx, const char* str);
 
 //------------------------------------------------------------------------------
+/**
+    A struct representing a json value. Clients should not modify or access the
+    fields directly as they can change between versions.
+*/
 struct jval_t
 {
     uint32_t type : 4;
@@ -171,6 +180,10 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
 #define jval_is_array(VAL) (jval_type(VAL) == JTYPE_ARRAY)
 
 //------------------------------------------------------------------------------
+/**
+    A json object struct. Do not modify or access the fields directly. They are 
+    subject to change version to version.
+*/
 struct jobj_t
 {
     struct json_t* json;
@@ -178,33 +191,72 @@ struct jobj_t
 };
 typedef struct jobj_t jobj_t;
 
+/**
+    NULL object
+*/
 #define JNULL_OBJ ((jobj_t){.json=NULL, .idx=0})
 
 /**
+    Reserves additional capacity for the object. The new capacity is at least
+    the current capacity + N
+    
+    @param obj the object.
+    @param n the additional capacity reserved.
 */
-void jobj_reserve( jobj_t obj, size_t cap );
+void jobj_reserve( jobj_t obj, size_t n );
 
 /**
+    Appends a number to the object with the given key.
+    
+    @param obj the object to append to.
+    @param key the key of the number.
+    @param num the number to append.
 */
 void jobj_add_num( jobj_t obj, const char* key, jnum_t num );
 
 /**
+    Appends a string to the object with the given key.
+    
+    @param obj the object.
+    @param key the key of the string.
+    @param str the string to be appended.
+    @param slen the length of the string being appended.
 */
 void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen );
 
 /**
+    Appends a boolean to the object with the given key.
+    
+    @param obj the object to append to.
+    @param key the key of the boolean.
+    @param b the boolean value.
 */
 void jobj_add_bool( jobj_t obj, const char* key, jbool_t b );
 
 /**
+    Appends a nil value to the object with the given key.
+    
+    @param obj the object to append to.
+    @param key the key of the nil value.
 */
 void jobj_add_nil( jobj_t obj, const char* key );
 
 /**
+    Appends and returns a new object to the specified object with the given key.
+    
+    @param obj the object to append to.
+    @param key the key of the new object.
+    @return the newly created object.
 */
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
 
 /**
+    Finds the first matching key.
+    
+    @param obj the object to search.
+    @param key the key to search for.
+    @param klen the length of the key string.
+    @return the matching value or JNULL_VAL if not found.
 */
 #define jobj_findl(OBJ, KEY, KLEN) jobj_get_val(OBJ, jobj_findl_idx(OBJ, KEY, KLEN))
 
@@ -216,11 +268,17 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key );
     @param key the key to search.
     @param klen the length of the key.
     
-    @param the index of the matching key-value, or SIZE_T_MAX
+    @param the index of the matching key-value, or SIZE_T_MAX if not found.
 */
 size_t jobj_findl_next_idx( jobj_t obj, size_t idx, const char* key, size_t klen );
 
 /**
+    Finds the first matching value for the given key.
+    
+    @param obj the object to search.
+    @param key the key to search for.
+    @param klen the length of the key string.
+    @return the index of the matching key-value or SIZE_T_MAX if not found.
 */
 #define jobj_findl_idx(OBJ, KEY, KLEN) jobj_findl_next_idx(OBJ, 0, KEY, KLEN)
 
@@ -283,7 +341,6 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
 */
 #define jobj_find(OBJ, KEY) jobj_findl(OBJ, KEY, strlen(KEY))
 
-
 /**
     Appends a string to the object with the given key.
     
@@ -294,6 +351,11 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
 #define jobj_add_str(OBJ, KEY, STR) jobj_add_strl(OBJ, KEY, STR, strlen(STR))
 
 //------------------------------------------------------------------------------
+
+/**
+    Json array struct. Do not modify or access the fields directly as they may
+    change version to version.
+*/
 struct jarray_t
 {
     struct json_t* json;
@@ -301,6 +363,9 @@ struct jarray_t
 };
 typedef struct jarray_t jarray_t;
 
+/**
+    NULL array
+*/
 #define JNULL_ARRAY ((jarray_t){.json=NULL, .idx=0})
 
 /**
@@ -505,7 +570,6 @@ typedef struct jerr_t jerr_t;
 #define jerr_fprint(FILE, JERR) fprintf(FILE, "%s:%zu:%zu: %s", (JERR)->src, (JERR)->line+1, (JERR)->col, (JERR)->msg)
 
 //------------------------------------------------------------------------------
-
 /**
     structure representing a json document. Do not access or modify the internal
     fields directly. They are subject to change in future versions.
@@ -816,7 +880,6 @@ jarray_t json_get_array( json_t* jsn, jval_t val );
     @param key the key to search for.
     @return an array value, or JNULL_ARRAY if not found.
 */
-
 #define jobj_find_array(OBJ, KEY) json_get_array(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
 
 #ifdef __cplusplus
