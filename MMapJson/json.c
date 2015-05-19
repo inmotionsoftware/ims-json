@@ -1037,7 +1037,7 @@ JINLINE jkv_t* _jobj_get_kv(_jobj_t* obj, size_t idx)
 //------------------------------------------------------------------------------
 jval_t* _jobj_get_val(_jobj_t* obj, size_t idx)
 {
-    return &_jobj_get_kv(obj, idx)->val;
+    return (idx < obj->len) ? &_jobj_get_kv(obj, idx)->val : NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -1148,6 +1148,13 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key )
 }
 
 //------------------------------------------------------------------------------
+jval_t jobj_get_val(jobj_t obj, size_t idx)
+{
+    jval_t* val = _jobj_get_val(jobj_get_obj(obj), idx);
+    return val ? *val : JNULL_VAL;
+}
+
+//------------------------------------------------------------------------------
 size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
 {
     assert (klen < 4);
@@ -1167,11 +1174,10 @@ size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
         }
     }
     return SIZE_T_MAX;
-
 }
 
 //------------------------------------------------------------------------------
-size_t jobj_findl( jobj_t obj, const char* key, size_t klen )
+size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t klen )
 {
     // check for short strings, these do not go into the hash table and must be
     // searched manually
@@ -1191,7 +1197,7 @@ size_t jobj_findl( jobj_t obj, const char* key, size_t klen )
     // we now know the correct index for our key, search the object to find a
     // matching index.
     jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs : _obj->buf;
-    for ( size_t i = 0; i < _obj->len; i++ )
+    for ( size_t i = next; i < _obj->len; i++ )
     {
         jkv_t* kv = &kvs[i];
 
@@ -2505,4 +2511,49 @@ void print_memory_stats(json_t* jsn)
     printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
     print_mem_usage();
 #endif
+}
+
+//------------------------------------------------------------------------------
+JINLINE void compile_macros()
+{
+    json_new();
+    jobj_t obj;
+    jarray_t array;
+    jval_t val;
+    const char* key;
+    const char* str;
+    jerr_t err;
+    FILE* file;
+    size_t idx;
+
+    jobj_find(obj, key);
+    jobj_find_array(obj, key);
+    jobj_find_bool(obj, key);
+    jobj_find_nil(obj, key);
+    jobj_find_num(obj, key);
+    jobj_find_obj(obj, key);
+    jobj_find_str(obj, key);
+    jerr_fprint(file, &err);
+
+    jarray_get_array(array, idx);
+    jarray_get_bool(array, idx);
+    jarray_get_json(array);
+    jarray_get_num(array, idx);
+    jarray_get_obj(array, idx);
+    jarray_get_str(array, idx);
+
+    jobj_get_json(obj);
+    jobj_find(obj, key);
+    jobj_add_str(obj, key, str);
+
+    jobj_findl_idx(obj, key, strlen(key));
+
+    jval_is_array(val);
+    jval_is_str(val);
+    jval_is_num(val);
+    jval_is_nil(val);
+    jval_is_obj(val);
+    jval_is_true(val);
+    jval_is_false(val);
+    jval_is_bool(val);
 }

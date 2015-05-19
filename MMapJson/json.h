@@ -35,6 +35,9 @@ struct _jarray_t;
 struct json_t;
 
 //------------------------------------------------------------------------------
+/**
+    An enumeration of json value types.
+*/
 enum jtype
 {
     JTYPE_NIL   = 0,
@@ -48,9 +51,25 @@ enum jtype
 #define JTYPE_MASK 0x7
 
 //------------------------------------------------------------------------------
+
+/**
+    Output flag for "pretty" printing. Adds newlines and tabs to the output.
+*/
 static const int JPRINT_PRETTY = 0x1;
+
+/**
+    Output flag for escaping unicode values in json strings and keys. Escape 
+    sequence is \uXXXX.
+*/
 static const int JPRINT_ESC_UNI = 0x2;
-typedef void (*print_func)( void* ctx, const char* );
+
+/**
+    User function for writing json output. 
+    
+    @param an opaque user pointer
+    @param a null terminated array of characters to write.
+*/
+typedef void (*print_func)( void* ctx, const char* str);
 
 //------------------------------------------------------------------------------
 struct jval_t
@@ -60,16 +79,96 @@ struct jval_t
 };
 typedef struct jval_t jval_t;
 
+/**
+    NULL value.
+*/
+#define JNULL_VAL ((jval_t){.type=JTYPE_NIL, .idx=0})
+
+/**
+    Writes the json value to the output function. 
+    
+    @see JPRINT_ESC_UNI
+    @see JPRINT_PRETTY
+    
+    @param jsn the json doc.
+    @param the value.
+    @param flags optional output flags.
+    @param p the output function for writing the json.
+    @param udata opaque user pointer passed to the output function.
+*/
 void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* udata);
-#define jval_type(VAL)      (VAL.type & JTYPE_MASK)
-#define jval_is_str(VAL)    (jval_type(VAL) == JTYPE_STR)
-#define jval_is_num(VAL)    (jval_type(VAL) == JTYPE_NUM)
-#define jval_is_obj(VAL)    (jval_type(VAL) == JTYPE_OBJ)
-#define jval_is_true(VAL)   (jval_type(VAL) == JTYPE_TRUE)
-#define jval_is_false(VAL)  (jval_type(VAL) == JTYPE_FALSE)
-#define jval_is_bool(VAL)   (jval_is_true(VAL) || jval_is_false(VAL))
-#define jval_is_nil(VAL)    (jval_type(VAL) == JTYPE_NIL)
-#define jval_is_array(VAL)  (jval_type(VAL) == JTYPE_ARRAY)
+
+/**
+    Gets the type of the value.
+    
+    @param val the value.
+    @return the json type of the value.
+*/
+#define jval_type(VAL) (VAL.type & JTYPE_MASK)
+
+/**
+    Checks whether or not the given value is a string type.
+    
+    @param val the value.
+    @return whether or not the value is a string type.
+*/
+#define jval_is_str(VAL) (jval_type(VAL) == JTYPE_STR)
+
+/**
+    Checks whether or not the given value is a number type.
+    
+    @param val the value.
+    @return whether or not the value is a number type.
+*/
+#define jval_is_num(VAL) (jval_type(VAL) == JTYPE_NUM)
+
+/**
+    Checks whether or not the given value is an object type.
+    
+    @param val the value.
+    @return whether or not the value is an object type.
+*/
+#define jval_is_obj(VAL) (jval_type(VAL) == JTYPE_OBJ)
+
+/**
+    Checks whether or not the given value is true.
+    
+    @param val the value.
+    @return whether or not the value is true.
+*/
+#define jval_is_true(VAL) (jval_type(VAL) == JTYPE_TRUE)
+
+/**
+    Checks whether or not the given value is false.
+    
+    @param val the value.
+    @return whether or not the value is false.
+*/
+#define jval_is_false(VAL) (jval_type(VAL) == JTYPE_FALSE)
+
+/**
+    Checks whether or not the given value is a boolean type.
+    
+    @param val the value.
+    @return whether or not the value is a boolean type.
+*/
+#define jval_is_bool(VAL) (jval_is_true(VAL) || jval_is_false(VAL))
+
+/**
+    Checks whether or not the given value is a nil type.
+    
+    @param val the value.
+    @return whether or not the value is a nil type.
+*/
+#define jval_is_nil(VAL) (jval_type(VAL) == JTYPE_NIL)
+
+/**
+    Checks whether or not the given value is an array type.
+    
+    @param val the value.
+    @return whether or not the value is an array type.
+*/
+#define jval_is_array(VAL) (jval_type(VAL) == JTYPE_ARRAY)
 
 //------------------------------------------------------------------------------
 struct jobj_t
@@ -81,20 +180,117 @@ typedef struct jobj_t jobj_t;
 
 #define JNULL_OBJ ((jobj_t){.json=NULL, .idx=0})
 
+/**
+*/
 void jobj_reserve( jobj_t obj, size_t cap );
+
+/**
+*/
 void jobj_add_num( jobj_t obj, const char* key, jnum_t num );
+
+/**
+*/
 void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen );
+
+/**
+*/
 void jobj_add_bool( jobj_t obj, const char* key, jbool_t b );
+
+/**
+*/
 void jobj_add_nil( jobj_t obj, const char* key );
+
+/**
+*/
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
 
-size_t jobj_findl( jobj_t obj, const char* key, size_t klen );
+/**
+*/
+#define jobj_findl(OBJ, KEY, KLEN) jobj_get_val(OBJ, jobj_findl_idx(OBJ, KEY, KLEN))
+
+/**
+    Searches the object for a matching key starting at the given index.
+    
+    @param obj the object to search.
+    @param idx the index to start searching from.
+    @param key the key to search.
+    @param klen the length of the key.
+    
+    @param the index of the matching key-value, or SIZE_T_MAX
+*/
+size_t jobj_findl_next_idx( jobj_t obj, size_t idx, const char* key, size_t klen );
+
+/**
+*/
+#define jobj_findl_idx(OBJ, KEY, KLEN) jobj_findl_next_idx(OBJ, 0, KEY, KLEN)
+
+/**
+    Gets the length of the object.
+    
+    @param obj the object.
+    @return the number of key-values in the object.
+*/
 size_t jobj_len( jobj_t obj );
+
+/**
+    Gets the key and value from object at the given index.
+    
+    @param obj the object.
+    @param idx the index to retrieve. If the index is out of range, the results 
+           are unspecified.
+    @param a pointer to hold the value returned. Must not be NULL.
+    @return the key of the value.
+*/
 const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
+
+/**
+    Gets the value from the object at the given index.
+    
+    @param obj the object.
+    @param idx the index to retrieve.
+    @return the value at the given index. If the index is out of range, the 
+            results are undefined.
+*/
+jval_t jobj_get_val(jobj_t obj, size_t idx);
+
+/**
+    Writes the json object to the output function.
+    
+    @see JPRINT_ESC_UNI
+    @see JPRINT_PRETTY
+    
+    @param obj the object to write.
+    @param flags optional output flags.
+    @param p the output function for writing the json.
+    @param udata opaque user pointer passed to the output function.
+*/
 void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
 
+/**
+    Gets the json doc the given object is attached to.
+    
+    @param obj the object
+    @return the json this object is attached to.
+*/
 #define jobj_get_json(OBJ) (OBJ).json
+
+/**
+    Finds the first value with the matching key.
+    
+    @param obj the search target.
+    @param key the search key.
+    @return
+*/
 #define jobj_find(OBJ, KEY) jobj_findl(OBJ, KEY, strlen(KEY))
+
+
+/**
+    Appends a string to the object with the given key.
+    
+    @param obj the object to append to.
+    @param key the key string.
+    @param str the string to be appended.
+*/
 #define jobj_add_str(OBJ, KEY, STR) jobj_add_strl(OBJ, KEY, STR, strlen(STR))
 
 //------------------------------------------------------------------------------
@@ -107,34 +303,161 @@ typedef struct jarray_t jarray_t;
 
 #define JNULL_ARRAY ((jarray_t){.json=NULL, .idx=0})
 
+/**
+    Appends and returns a new array to the end of the object with the given key.
+    
+    @param obj the object.
+    @param key the key.
+    @param a newly created array.
+*/
 jarray_t jobj_add_array( jobj_t obj, const char* key );
 
-void jarray_reserve( jarray_t a, size_t cap );
+/**
+    Reserve additional memory for the array. The amount reserved is at least the
+    current capacity + N.
+    
+    @param a the array.
+    @param n the additional amount to reserve.
+*/
+void jarray_reserve( jarray_t a, size_t n );
+
+/**
+    Appends a number to the end of array.
+    
+    @param a the array. 
+    @param num the number to append.
+*/
 void jarray_add_num( jarray_t a, jnum_t num );
+
+/**
+    Appends a string to the end of the array.
+    
+    @param a the array.
+    @param str the string to append.
+    @param the length of the string.
+*/
 void jarray_add_strl( jarray_t a, const char* str, size_t slen );
+
+/**
+    Appends a boolean to the end of the array.
+    
+    @param a the array.
+    @param b the boolean to append.
+*/
 void jarray_add_bool( jarray_t a, jbool_t b );
+
+/**
+    Appends a nil to the end of the array.
+    
+    @param a the array.
+*/
 void jarray_add_nil(jarray_t a);
+
+/**
+    Appends and returns a new array to the array.
+    
+    @param a the array.
+    @return the newly created array appended to the given array.
+*/
 jarray_t jarray_add_array(jarray_t a);
+
+/**
+    Appends and returns a new object to the end of the array.
+    
+    @param a the array.
+    @return the newly created object appended to the given array.
+*/
 jobj_t jarray_add_obj(jarray_t a);
+
+/**
+    Get the length of the array.
+    
+    @param a the array.
+*/
 size_t jarray_len(jarray_t a);
+
+/**
+    Gets the value of an item in the given array at the index.
+    
+    If the index is outside of the bounds of the array the results are 
+    unspecified.
+    
+    @param a the array.
+    @param idx the index of the array.
+    @return the value at the index.
+*/
 jval_t jarray_get(jarray_t a, size_t idx);
+
+/**
+    Writes the array out to the given function.
+    
+    @param array the array.
+    @param flags the optional flags to control the format.
+    @param p the print function.
+    @param udata opaque user data passed to the output function.
+*/
 void jarray_print(jarray_t array, int flags, print_func p, void* udata);
 
 /**
+    Appends a string value to the end of the array.
+    
+    @param the array, must not be NULL.
+    @param the string, must not be NULL.
 */
 #define jarray_add_str(A, STR) jarray_add_strl(A, STR, strlen(STR))
 
 /**
+    Gets the json doc the array is attached to.
+
+    @param the array, must not be NULL.
+    @return a pointer to the json doc this array is attached to.
 */
 #define jarray_get_json(A) (A).json
 
 /**
+    Gets a string from the array at the given index. 
+    
+    @param array the array
+    @param idx the index of the string value.
+    @return the string value for the index, or NULL.
 */
 #define jarray_get_str(A, IDX) json_get_str(jarray_get_json(A), jarray_get(A, IDX))
 
 /**
+    Gets a number from the array at the given index.
+    
+    @param array the array
+    @param idx the index of the number value.
+    @return the number value for the index, or 0.
 */
 #define jarray_get_num(A, IDX) json_get_num(jarray_get_json(A), jarray_get(A, IDX))
+
+/**
+    Gets a boolean from the array at the given index.
+    
+    @param array the array
+    @param idx the index of the boolean value.
+    @return the boolean value for the index, or 0.
+*/
+#define jarray_get_bool(A, IDX) json_get_bool(jarray_get_json(A), jarray_get(A, IDX))
+
+/**
+    Gets an object from the array at the given index.
+    
+    @param array the array
+    @param idx the index of the object value.
+    @return the object value for the index, or JNULL_OBJ.
+*/
+#define jarray_get_obj(A, IDX) json_get_obj(jarray_get_json(A), jarray_get(A, IDX))
+
+/**
+    Gets an array from the array at the given index.
+    
+    @param array the array
+    @param idx the index of the array value.
+    @return the array value for the index, or JNULL_ARRAY.
+*/
+#define jarray_get_array(A, IDX) json_get_array(jarray_get_json(A), jarray_get(A, IDX))
 
 //------------------------------------------------------------------------------
 
@@ -493,6 +816,7 @@ jarray_t json_get_array( json_t* jsn, jval_t val );
     @param key the key to search for.
     @return an array value, or JNULL_ARRAY if not found.
 */
+
 #define jobj_find_array(OBJ, KEY) json_get_array(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
 
 #ifdef __cplusplus
