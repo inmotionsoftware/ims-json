@@ -27,10 +27,17 @@ extern "C"
 
 using namespace ims;
 
-#define log_debug(FMT,...) printf(FMT "\n", ## __VA_ARGS__ )
+static inline void log_debug( const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
+    printf("\n");
+}
 
-const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
-//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
+//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
+const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
 //const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/magic.json";
 //const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/medium.json";
 
@@ -151,35 +158,17 @@ int main(int argc, const char * argv[])
 //    double t4 = time_call([]()
 //    {
 //        auto j = ims::json::from_file(path);
-////        auto j = ::json::load_file2(path);
 //    });
 //    log_debug("completed in: %f secs", t4);
-
 
 //    log_debug("starting 'test_construction'");
 //    double t2 = time_call(test_construction);
 //    log_debug("completed in: %f secs", t2);
 //
-    log_debug("starting 'test_construction_cpp'");
-    double t3 = time_call(test_construction_cpp);
-    log_debug("completed in: %f secs", t3);
+//    log_debug("starting 'test_construction_cpp'");
+//    double t3 = time_call(test_construction_cpp);
+//    log_debug("completed in: %f secs", t3);
 
-//    auto j2 = ims::json::from_file("/Users/bghoward/Projects/MMapJson/MMapJson/test.json");
-//    if (j2)
-//    {
-//        std::cout << j2 << std::endl;
-//    }
-//
-//    ims::json jsn;
-//    obj root = jsn.root();
-//    root["key"] = "string";
-//    root["num"] = 1.25;
-//    root["num"] = 10;
-//    root["true"] = true;
-//    root["false"] = false;
-//    root["array"].add_array(1, 2, 3, 4, 5, "blah");
-//    root["obj"].add_obj("a", 1, "b", 2);
-//    std::cout << jsn << std::endl;
 
     return 0;
 }

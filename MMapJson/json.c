@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <setjmp.h>
+#include <stdarg.h>
 
 #define JPOSIX (__unix__ || __APPLE__ && __MACH__)
 
@@ -27,29 +28,17 @@
 
 #pragma mark - macros
 
-#ifndef MAX
-//    #define MIN(A,B) ((A)>(B)?(A):(B))
-    #define MAX(A,B) ({__typeof__(A) a = (A); __typeof__(B) b = (B); a>b?a:b; })
-#endif
-
-#ifndef MIN
-//    #define MIN(A,B) ((A)<(B)?(A):(B))
-    #define MIN(A,B) ({__typeof__(A) a = (A); __typeof__(B) b = (B); a<b?a:b; })
-#endif
-
-#define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
 #define json_do_err(CTX) longjmp(ctx->jerr_jmp, EXIT_FAILURE)
 //#define json_do_err(CTX) abort()
-#define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), "" STR, ## __VA_ARGS__ ); json_do_err(ctx); } }
-#define json_fprintf(F, FMT, ...) fprintf(F, FMT, ## __VA_ARGS__ )
 
 #pragma mark - constants
 
 #if __STRICT_ANSI__
-    #define JINLINE
+    #define JINLINE static __inline__
 #else
     #define JINLINE static inline
 #endif
+
 
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
@@ -120,7 +109,7 @@ struct jstr_t
     {
         char* chars;
         char buf[BUF_SIZE+1];
-    };
+    } str;
 };
 typedef struct jstr_t jstr_t;
 
@@ -129,9 +118,9 @@ struct jkv_t
 {
     union
     {
-        uint32_t _key;
+        uint32_t kidx;
         char kstr[4]; // used to pack short keys into the value directly
-    };
+    } key;
     jval_t val;
 };
 typedef struct jkv_t jkv_t;
@@ -143,9 +132,9 @@ struct _jobj_t
     jsize_t len;
     union
     {
-        jkv_t* kvs;
+        jkv_t* ptr;
         jkv_t buf[BUF_SIZE];
-    };
+    } kvs;
 };
 typedef struct _jobj_t _jobj_t;
 
@@ -156,9 +145,9 @@ struct _jarray_t
     jsize_t len;
     union
     {
-        jval_t* vals;
+        jval_t* ptr;
         jval_t buf[BUF_SIZE];
-    };
+    } vals;
 };
 typedef struct _jarray_t _jarray_t;
 
@@ -167,8 +156,8 @@ typedef struct _jarray_t _jarray_t;
 //------------------------------------------------------------------------------
 void print_memory_stats(json_t*);
 JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx );
-void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth);
-void _jarray_print(jprint_t* ctx, jarray_t array, size_t depth );
+JINLINE void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth);
+JINLINE void _jarray_print(jprint_t* ctx, jarray_t array, size_t depth );
 
 #pragma mark - memory
 
@@ -206,6 +195,44 @@ JINLINE void* jrealloc( void* ptr, size_t s )
 }
 
 #pragma mark - util
+
+//#define jmins(A,B) ({__typeof__(A) a = A; __typeof__(B) b = B; (a<b)?a:b; })
+//#define jmaxs(A,B) ({__typeof__(A) a = A; __typeof__(B) b = B; (a>b)?a:b; })
+//#define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
+//#define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), "" STR, ## __VA_ARGS__ ); json_do_err(ctx); } }
+
+//------------------------------------------------------------------------------
+JINLINE size_t jmins( size_t m1, size_t m2 ) { return (m1<m2) ? m1 : m2; }
+
+//------------------------------------------------------------------------------
+JINLINE size_t jmaxs( size_t m1, size_t m2 ) { return (m1>m2) ? m1 : m2; }
+
+//------------------------------------------------------------------------------
+JINLINE int jsnprintf( char* buf, size_t blen, const char* fmt, ... )
+{
+    assert(blen > 0);
+
+    va_list args;
+    va_start(args, fmt);
+    int rt = vsnprintf(buf, blen, fmt, args);
+    va_end(args);
+    buf[blen-1] = 0;
+    return rt;
+}
+
+//------------------------------------------------------------------------------
+#define json_assert(...) _json_assert(ctx, __VA_ARGS__)
+JINLINE void _json_assert(jcontext_t* ctx, jbool_t b, const char* fmt, ...)
+{
+    if (b) return;
+
+    va_list args;
+    va_start(args, fmt);
+    jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), fmt, args);
+    va_end(args);
+
+    json_do_err(ctx);
+}
 
 //------------------------------------------------------------------------------
 JINLINE jbool_t is_prime( size_t x )
@@ -290,14 +317,14 @@ JINLINE size_t grow( size_t min, size_t cur )
     static const size_t MIN_ALLOC = 13;
 
     assert(min >= cur);
-    size_t size = MAX(MAX(MIN_ALLOC, min), MIN(cur*GROWTH_FACTOR+2, cur+MAX_GROWTH));
+    size_t size = jmaxs(jmaxs(MIN_ALLOC, min), jmins( (size_t)(cur*GROWTH_FACTOR+2), cur+MAX_GROWTH));
     assert(size > cur);
     return size;
 }
 
 #pragma mark - jprint_t
 //------------------------------------------------------------------------------
-void jprint_init( jprint_t* p, const char* tabs, const char* newline )
+JINLINE void jprint_init( jprint_t* p, const char* tabs, const char* newline )
 {
     assert(p);
     strcpy(p->newline, newline);
@@ -308,7 +335,7 @@ void jprint_init( jprint_t* p, const char* tabs, const char* newline )
 }
 
 //------------------------------------------------------------------------------
-void jprint_init_flags( jprint_t* ctx, int flags, print_func func, void* udata )
+JINLINE void jprint_init_flags( jprint_t* ctx, int flags, print_func func, void* udata )
 {
     if (flags & JPRINT_PRETTY)
     {
@@ -385,7 +412,7 @@ JINLINE jhash_t jstr_hash( const char* key, size_t len )
 {
     static const jhash_t MURMER32_SEED = 0;
     static const size_t MAX_CHARS = 32;
-    return murmur3_32(key, MIN(MAX_CHARS, len), MURMER32_SEED);
+    return murmur3_32(key, jmins(MAX_CHARS, len), MURMER32_SEED);
 }
 
 //------------------------------------------------------------------------------
@@ -402,12 +429,12 @@ JINLINE void jstr_init_str_hash( jstr_t* jstr, const char* cstr, size_t len, jha
         char* buf = (char*)jmalloc( len * sizeof(char) + 1 );
         memcpy(buf, cstr, len * sizeof(char));
         buf[len] = '\0';
-        jstr->chars = buf;
+        jstr->str.chars = buf;
     }
     else
     {
-        memcpy(jstr->buf, cstr, len * sizeof(char));
-        jstr->buf[len] = '\0';
+        memcpy(jstr->str.buf, cstr, len * sizeof(char));
+        jstr->str.buf[len] = '\0';
     }
 }
 
@@ -453,7 +480,7 @@ JINLINE void jmap_destroy(jmap_t* map)
             jstr_t* str = &map->strs[i];
             if (str->len > BUF_SIZE)
             {
-                jfree(str->chars);
+                jfree(str->str.chars);
             }
         }
         jfree(map->strs); map->strs = NULL;
@@ -531,13 +558,13 @@ JINLINE void jmap_rehash(jmap_t* map, size_t hint)
     }
 
     // TODO: reuse allocations
-    size_t _target = ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
+    size_t _target = (size_t)ceilf(map->bcap / JMAP_IDEAL_LOADFACTOR);
     size_t target = next_prime(_target);
 
     size_t max = map->bcap;
     jmapbucket_t* buckets = map->buckets;
 
-    map->bcap = MAX( MAX(hint, 13), target);
+    map->bcap = jmaxs( jmaxs(hint, 13), target);
     map->buckets = (jmapbucket_t*)jcalloc(map->bcap, sizeof(jmapbucket_t));
     map->blen = 0;
 
@@ -582,7 +609,7 @@ JINLINE size_t jmap_find_hash(jmap_t* map, jhash_t hash, const char* cstr, size_
 
         if (str->hash == hash && str->len == slen)
         {
-            const char* chars = (str->len > BUF_SIZE) ? str->chars : str->buf;
+            const char* chars = (str->len > BUF_SIZE) ? str->str.chars : str->str.buf;
             assert(chars);
 
             if (strncmp(chars, cstr, slen) == 0)
@@ -716,7 +743,7 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
             {
                 if (!ctx->esc_uni)
                 {
-                    char buf[2] = {ch, 0};
+                    char buf[2] = { (char)ch, 0};
                     ctx->print(ctx->udata, buf);
                     break;
                 }
@@ -732,7 +759,7 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
                 }
                 else
                 {
-                    char buf[2] = {ch, 0};
+                    char buf[2] = {(char)ch, 0};
                     ctx->print(ctx->udata, buf);
                 }
                 break;
@@ -893,7 +920,7 @@ const char* json_get_str( json_t* jsn, jval_t val )
     jstr_t* jstr = jmap_get_str(&jsn->strmap, val.idx);
     if (!jstr) return NULL;
 
-    return (jstr->len > BUF_SIZE) ? jstr->chars : jstr->buf;
+    return (jstr->len > BUF_SIZE) ? jstr->str.chars : jstr->str.buf;
 }
 
 //------------------------------------------------------------------------------
@@ -959,17 +986,17 @@ const char* jobj_get(jobj_t obj, size_t idx, jval_t* val)
     _jobj_t* _obj = jobj_get_obj(obj);
     json_t* jsn = jobj_get_json(obj);
 
-    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs : _obj->buf;
+    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs.ptr : _obj->kvs.buf;
 
     *val = kvs[idx].val;
     if (kvs[idx].val.type & ~JTYPE_MASK)
     {
-        return kvs[idx].kstr;
+        return kvs[idx].key.kstr;
     }
 
-    jstr_t* jstr = jmap_get_str(&jsn->strmap, kvs[idx]._key);
+    jstr_t* jstr = jmap_get_str(&jsn->strmap, kvs[idx].key.kidx);
     assert(jstr);
-    return (jstr->len > BUF_SIZE) ? jstr->chars : jstr->buf;
+    return (jstr->len > BUF_SIZE) ? jstr->str.chars : jstr->str.buf;
 }
 
 //------------------------------------------------------------------------------
@@ -986,14 +1013,14 @@ JINLINE void jobj_truncate( jobj_t o )
 
     if (obj->len <= BUF_SIZE && obj->cap > BUF_SIZE)
     {
-        jkv_t* kvs = obj->kvs;
-        memcpy(obj->buf, kvs, sizeof(jkv_t)*obj->len);
+        jkv_t* kvs = obj->kvs.ptr;
+        memcpy(obj->kvs.buf, kvs, sizeof(jkv_t)*obj->len);
         jfree(kvs);
         obj->cap = obj->len;
         return;
     }
 
-    obj->kvs = (jkv_t*)jrealloc(obj->kvs, obj->len * sizeof(jkv_t));
+    obj->kvs.ptr = (jkv_t*)jrealloc(obj->kvs.ptr, obj->len * sizeof(jkv_t));
     obj->cap = obj->len;
 }
 
@@ -1010,13 +1037,13 @@ JINLINE void _jobj_reserve( _jobj_t* obj, size_t cap )
     if (prev_cap <= BUF_SIZE)
     {
         jkv_t* kvs = (jkv_t*)jmalloc( obj->cap * sizeof(jkv_t) );
-        memcpy(kvs, obj->buf, sizeof(jkv_t) * obj->len);
-        obj->kvs = kvs;
+        memcpy(kvs, obj->kvs.buf, sizeof(jkv_t) * obj->len);
+        obj->kvs.ptr = kvs;
     }
     else
     {
-        assert(obj->kvs);
-        obj->kvs = (jkv_t*)jrealloc(obj->kvs, sizeof(jkv_t)*obj->cap);
+        assert(obj->kvs.ptr);
+        obj->kvs.ptr = (jkv_t*)jrealloc(obj->kvs.ptr, sizeof(jkv_t)*obj->cap);
     }
 }
 
@@ -1031,11 +1058,11 @@ JINLINE jkv_t* _jobj_get_kv(_jobj_t* obj, size_t idx)
 {
     assert(obj);
     assert(idx < obj->len);
-    return (obj->cap > BUF_SIZE) ? &obj->kvs[idx] : &obj->buf[idx];
+    return (obj->cap > BUF_SIZE) ? &obj->kvs.ptr[idx] : &obj->kvs.buf[idx];
 }
 
 //------------------------------------------------------------------------------
-jval_t* _jobj_get_val(_jobj_t* obj, size_t idx)
+JINLINE jval_t* _jobj_get_val(_jobj_t* obj, size_t idx)
 {
     return (idx < obj->len) ? &_jobj_get_kv(obj, idx)->val : NULL;
 }
@@ -1059,17 +1086,17 @@ JINLINE size_t jobj_add_keyl( jobj_t o, const char* key, size_t klen )
     kv->val.type = JTYPE_NIL;
     kv->val.idx = 0;
 
-    if (klen < sizeof(kv->kstr) )
+    if (klen < sizeof(kv->key.kstr) )
     {
-        kv->_key = 0;
-        strncpy(kv->kstr, key, sizeof(kv->kstr));
+        kv->key.kidx = 0;
+        strncpy(kv->key.kstr, key, sizeof(kv->key.kstr));
         kv->val.type |= ~JTYPE_MASK;
     }
     else
     {
         size_t kidx = json_add_strl(jsn, key, klen);
         assert (kidx < MAX_KEY_IDX);
-        kv->_key = (uint32_t)kidx;
+        kv->key.kidx = (uint32_t)kidx;
     }
     return idx;
 }
@@ -1155,19 +1182,19 @@ jval_t jobj_get_val(jobj_t obj, size_t idx)
 }
 
 //------------------------------------------------------------------------------
-size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
+JINLINE size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
 {
     assert (klen < 4);
 
     _jobj_t* _obj = jobj_get_obj(obj);
-    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs : _obj->buf;
+    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs.ptr : _obj->kvs.buf;
     for ( size_t i = 0; i < _obj->len; i++ )
     {
         jkv_t* kv = &kvs[i];
         if ( (kv->val.type & ~JTYPE_MASK) == 0 )
             continue;
 
-        if (strcmp(kv->kstr, key) == 0)
+        if (strcmp(kv->key.kstr, key) == 0)
         {
             // found it!
             return i;
@@ -1196,7 +1223,7 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t kle
 
     // we now know the correct index for our key, search the object to find a
     // matching index.
-    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs : _obj->buf;
+    jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs.ptr : _obj->kvs.buf;
     for ( size_t i = next; i < _obj->len; i++ )
     {
         jkv_t* kv = &kvs[i];
@@ -1206,7 +1233,7 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t kle
             continue;
 
         // found a match!!!
-        if (kv->_key == idx)
+        if (kv->key.kidx == idx)
         {
             return i;
         }
@@ -1216,7 +1243,7 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t kle
 }
 
 //------------------------------------------------------------------------------
-void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth)
+JINLINE void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth)
 {
     ctx->print(ctx->udata, "{");
     ctx->print(ctx->udata, ctx->newline);
@@ -1269,14 +1296,14 @@ JINLINE void jarray_truncate( jarray_t a )
 
     if (array->len <= BUF_SIZE && array->cap > BUF_SIZE)
     {
-        jval_t* vals = array->vals;
-        memcpy(array->buf, vals, sizeof(jval_t)*array->len);
+        jval_t* vals = array->vals.ptr;
+        memcpy(array->vals.buf, vals, sizeof(jval_t)*array->len);
         jfree(vals);
         array->cap = array->len;
         return;
     }
 
-    array->vals = (jval_t*)jrealloc(array->vals, array->len * sizeof(jval_t));
+    array->vals.ptr = (jval_t*)jrealloc(array->vals.ptr, array->len * sizeof(jval_t));
     array->cap = array->len;
 }
 
@@ -1294,13 +1321,13 @@ JINLINE void _jarray_reserve( _jarray_t* a, size_t cap )
     if (prev_cap <= BUF_SIZE)
     {
         jval_t* vals = (jval_t*)jmalloc( a->cap * sizeof(jval_t) );
-        memcpy(vals, a->buf, a->len * sizeof(jval_t));
-        a->vals = vals;
+        memcpy(vals, a->vals.buf, a->len * sizeof(jval_t));
+        a->vals.ptr = vals;
     }
     else
     {
-        assert(a->vals);
-        a->vals = (jval_t*)jrealloc( a->vals, a->cap * sizeof(jval_t) );
+        assert(a->vals.ptr);
+        a->vals.ptr = (jval_t*)jrealloc( a->vals.ptr, a->cap * sizeof(jval_t) );
     }
 }
 
@@ -1315,11 +1342,11 @@ JINLINE jval_t* _jarray_get_val( _jarray_t* a, size_t idx)
 {
     assert(a);
     assert(idx < a->len);
-    return (a->cap > BUF_SIZE) ? &a->vals[idx] : &a->buf[idx];
+    return (a->cap > BUF_SIZE) ? &a->vals.ptr[idx] : &a->vals.buf[idx];
 }
 
 //------------------------------------------------------------------------------
-jval_t* _jarray_add_val( _jarray_t* a)
+JINLINE jval_t* _jarray_add_val( _jarray_t* a)
 {
     assert(a);
     _jarray_reserve(a, 1);
@@ -1416,7 +1443,7 @@ jobj_t jarray_add_obj( jarray_t _a )
 }
 
 //------------------------------------------------------------------------------
-void _jarray_print( jprint_t* ctx, jarray_t array, size_t depth )
+JINLINE void _jarray_print( jprint_t* ctx, jarray_t array, size_t depth )
 {
     ctx->print(ctx->udata, "[\n");
     json_t* jsn = jarray_get_json(array);
@@ -1619,7 +1646,7 @@ void json_destroy(json_t* jsn)
         _jobj_t* obj = _json_get_obj(jsn, i);
         if (obj->cap > BUF_SIZE)
         {
-            jfree(obj->kvs); obj->kvs = NULL;
+            jfree(obj->kvs.ptr); obj->kvs.ptr = NULL;
         }
     }
     jfree(jsn->objs.ptr); jsn->objs.ptr = NULL;
@@ -1630,7 +1657,7 @@ void json_destroy(json_t* jsn)
         _jarray_t* array = _json_get_array(jsn, n);
         if (array->cap > BUF_SIZE)
         {
-            jfree(array->vals); array->vals = NULL;
+            jfree(array->vals.ptr); array->vals.ptr = NULL;
         }
     }
     jfree(jsn->arrays.ptr); jsn->arrays.ptr = NULL;
@@ -1649,7 +1676,6 @@ jobj_t json_root(json_t* jsn)
     assert(jsn);
     return (jobj_t){jsn, 0};
 }
-
 
 #pragma mark - jcontext_t
 
@@ -1710,7 +1736,7 @@ JINLINE int jpeek( jcontext_t* ctx )
     {
         return EOF;
     }
-    return (unsigned char)*ctx->beg;
+    return *ctx->beg & 0xFF;
 }
 
 //------------------------------------------------------------------------------
@@ -1854,7 +1880,7 @@ JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
 
             default:
             {
-                *places = pow(10, cnt);
+                *places = (size_t)pow(10.0, (double)cnt);
                 return num;
             }
         }
@@ -2026,7 +2052,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                         return;
 
                     default:
-                        jbuf_add(str, ch);
+                        jbuf_add(str, (char)ch);
                         break;
                 }
                 break;
@@ -2297,7 +2323,7 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen,
     ctx.err = err;
 
     // pre-allocate data based on estimate size
-    size_t est = grow(ceilf(blen*0.01), 0);
+    size_t est = grow( (size_t)ceilf(blen*0.01f), 0);
 
     jmap_rehash(&jsn->strmap, est);
     json_nums_reserve(jsn, est);

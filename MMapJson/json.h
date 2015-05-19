@@ -197,6 +197,11 @@ typedef struct jobj_t jobj_t;
 #define JNULL_OBJ ((jobj_t){.json=NULL, .idx=0})
 
 /**
+    Tests whether or not the given object is NULL.
+*/
+#define jobj_is_null(OBJ) ((OBJ).json == NULL)
+
+/**
     Reserves additional capacity for the object. The new capacity is at least
     the current capacity + N
     
@@ -367,6 +372,11 @@ typedef struct jarray_t jarray_t;
     NULL array
 */
 #define JNULL_ARRAY ((jarray_t){.json=NULL, .idx=0})
+
+/**
+    Tests whether or not the given array is NULL
+*/
+#define jarray_is_null(ARRAY) ((ARRAY).json == NULL)
 
 /**
     Appends and returns a new array to the end of the object with the given key.

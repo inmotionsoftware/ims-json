@@ -658,7 +658,7 @@ namespace ims
         bool is_array() const { return jval_is_array(m_val); }
         bool operator! ( ) const { return is_nil(); }
 
-        operator int() const { return json_get_num(m_jsn, m_val); }
+        operator int() const { return (int)json_get_num(m_jsn, m_val); }
         operator jnum_t() const { return json_get_num(m_jsn, m_val); }
         operator const char*() const { return json_get_str(m_jsn, m_val); }
         operator bool() const { return json_get_bool(m_jsn, m_val); }
