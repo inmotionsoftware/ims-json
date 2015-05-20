@@ -8,13 +8,7 @@
 
 #include <time.h>
 
-extern "C"
-{
-    #include "json.h"
-}
-
 #include "json.hpp"
-
 #include <math.h>
 #include <assert.h>
 #include <sys/mman.h>
@@ -24,6 +18,8 @@ extern "C"
 #include <fcntl.h>
 #include <list>
 #include <iostream>
+
+#define btomb(bytes) (bytes / (double)(1024*1024))
 
 using namespace ims;
 
@@ -52,6 +48,17 @@ double time_call( F func )
 }
 
 //------------------------------------------------------------------------------
+static void jmem_print( jmem_stats_t* mem )
+{
+    assert(mem);
+    log_debug("[MEM][STRS ]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->strs.used), btomb(mem->strs.reserved));
+    log_debug("[MEM][NUMS ]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->nums.used), btomb(mem->nums.reserved));
+    log_debug("[MEM][OBJS ]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->objs.used), btomb(mem->objs.reserved));
+    log_debug("[MEM][ARRAY]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->arrays.used), btomb(mem->arrays.reserved));
+    log_debug("[MEM][TOTAL]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->total.used), btomb(mem->total.reserved));
+}
+
+//------------------------------------------------------------------------------
 static void test_read()
 {
     log_debug("starting test: '%s'", __func__);
@@ -63,6 +70,9 @@ static void test_read()
         jerr_fprint(stderr, &err);
         abort();
     }
+
+    jmem_stats_t mem = json_get_mem(jsn);
+    jmem_print(&mem);
 
     assert(jsn);
     if (jsn->strmap.slen < 50)

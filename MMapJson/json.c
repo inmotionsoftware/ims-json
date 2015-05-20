@@ -154,7 +154,6 @@ typedef struct _jarray_t _jarray_t;
 #pragma mark - function prototypes
 
 //------------------------------------------------------------------------------
-void print_memory_stats(json_t*);
 JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx );
 JINLINE void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth);
 JINLINE void _jarray_print(jprint_t* ctx, jarray_t array, size_t depth );
@@ -582,6 +581,36 @@ JINLINE void jmap_rehash(jmap_t* map, size_t hint)
         jfree(bucket->slots); bucket->slots = NULL;
     }
     jfree(buckets); buckets = NULL;
+}
+
+//------------------------------------------------------------------------------
+JINLINE jmem_t jmap_get_mem( jmap_t* map )
+{
+    jmem_t mem = {0,0};
+
+    for ( size_t i = 0; i < map->slen; i++ )
+    {
+        jstr_t* str = &map->strs[i];
+        if (str->len > BUF_SIZE)
+        {
+            mem.used += str->len;
+            mem.reserved += str->len;
+        }
+    }
+    mem.used += map->slen * sizeof(jstr_t);
+    mem.reserved += map->scap * sizeof(jstr_t);
+
+    for ( size_t n = 0; n < map->bcap; n++ )
+    {
+        jmapbucket_t* bucket = &map->buckets[n];
+        mem.used += bucket->len * sizeof(*bucket->slots);
+        mem.reserved += bucket->cap * sizeof(*bucket->slots);
+    }
+
+    mem.used += map->bcap * sizeof(jmapbucket_t);
+    mem.reserved += map->bcap * sizeof(jmapbucket_t);
+
+    return mem;
 }
 
 //------------------------------------------------------------------------------
@@ -2294,8 +2323,6 @@ JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* er
     jerr_init_src(err, src);
     ctx.err = err;
 
-    print_mem_usage();
-
     int status = json_parse_file(jsn, &ctx);
     if (status != 0)
     {
@@ -2303,10 +2330,6 @@ JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* er
     }
 
     jcontext_destroy(&ctx);
-
-    print_mem_usage();
-    print_memory_stats(jsn);
-
     return status;
 }
 
@@ -2330,8 +2353,6 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen,
     json_arrays_reserve(jsn, est);
     json_objs_reserve(jsn, est);
 
-    print_mem_usage();
-
     int status = json_parse_file(jsn, &ctx);
     if (status != 0)
     {
@@ -2339,14 +2360,6 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen,
     }
 
     jcontext_destroy(&ctx);
-
-    print_mem_usage();
-
-    if (jsn)
-    {
-        print_memory_stats(jsn);
-    }
-
     return status;
 }
 
@@ -2430,113 +2443,70 @@ int json_load_path(json_t* jsn, const char* path, jerr_t* err)
     fclose(file);
 #endif
 
-    print_mem_usage();
-
     return status;
 }
 
 //------------------------------------------------------------------------------
-void print_memory_stats(json_t* jsn)
+JINLINE jmem_t json_mem_arrays( json_t* jsn )
 {
-    assert(jsn);
+    jmem_t mem = {0,0};
 
-#define PRINT_MEMORY 1
-#if PRINT_MEMORY
-    size_t total = 0;
-    size_t total_reserve = 0;
-
-    if (jsn->arrays.len > 0)
+    for ( size_t i = 0; i < jsn->arrays.len; i++ )
     {
-        size_t mem = 0;
-        size_t reserve = 0;
-        for ( size_t i = 0; i < jsn->arrays.len; ++i )
+        _jarray_t* a = _json_get_array(jsn, i);
+        if (a->cap > BUF_SIZE)
         {
-            _jarray_t* array = _json_get_array(jsn, i);
-            if (array->cap > BUF_SIZE)
-            {
-                mem += array->len * sizeof(jval_t);
-                reserve += array->cap * sizeof(jval_t);
-            }
+            mem.used += a->len * sizeof(jval_t);
+            mem.reserved += a->cap * sizeof(jval_t);
         }
-        mem += jsn->arrays.len * sizeof(_jarray_t);
-        reserve += jsn->arrays.cap * sizeof(_jarray_t);
-        printf("[ARRAY] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->arrays.len);
-
-        total += mem;
-        total_reserve += reserve;
     }
+    mem.used += sizeof(_jarray_t) * jsn->arrays.len;
+    mem.reserved += sizeof(_jarray_t) * jsn->arrays.cap;
+    return mem;
+}
 
-    if (jsn->objs.len > 0)
+//------------------------------------------------------------------------------
+JINLINE jmem_t json_mem_nums( json_t* jsn )
+{
+    jmem_t mem = {0,0};
+    mem.used += sizeof(jnum_t) * jsn->nums.len;
+    mem.reserved += sizeof(jnum_t) * jsn->nums.cap;
+    return mem;
+}
+
+//------------------------------------------------------------------------------
+JINLINE jmem_t json_mem_objs( json_t* jsn )
+{
+    jmem_t mem = {0,0};
+    for ( size_t i = 0; i < jsn->objs.len; i++ )
     {
-        size_t mem = 0;
-        size_t reserve = 0;
-        for ( size_t i = 0; i < jsn->objs.len; ++i )
+        _jobj_t* a = _json_get_obj(jsn, i);
+        if (a->cap > BUF_SIZE)
         {
-            _jobj_t* obj = _json_get_obj(jsn, i);
-            if (obj->cap > BUF_SIZE)
-            {
-                mem += obj->len * sizeof(jkv_t);
-                reserve += obj->cap * sizeof(jkv_t);
-            }
+            mem.used += a->len * sizeof(jkv_t);
+            mem.reserved += a->cap * sizeof(jkv_t);
         }
-        mem += jsn->objs.len * sizeof(_jobj_t);
-        reserve += jsn->objs.cap * sizeof(_jobj_t);
-        printf("[OBJECT] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%] Size: %zu\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100, jsn->objs.len);
-
-        total += mem;
-        total_reserve += reserve;
     }
+    mem.used += sizeof(_jobj_t) * jsn->objs.len;
+    mem.reserved += sizeof(_jobj_t) * jsn->objs.cap;
+    return mem;
+}
 
-    if (jsn->strmap.strs)
-    {
-        size_t mem = 0;
-        size_t reserve = 0;
-        for ( size_t i = 0; i < jsn->strmap.slen; ++i )
-        {
-            jstr_t* str = jmap_get_str(&jsn->strmap, i);
-            if (str->len > BUF_SIZE)
-            {
-                mem += str->len*sizeof(char);
-                reserve += str->len*sizeof(char);
-            }
-        }
-        mem += jsn->strmap.slen * sizeof(jstr_t);
-        reserve += jsn->strmap.scap * sizeof(jstr_t);
+//------------------------------------------------------------------------------
+jmem_stats_t json_get_mem(json_t* jsn)
+{
+    jmem_stats_t stats;
+    memset(&stats, 0, sizeof(stats));
 
-        // hashmap memory usage
-        mem += jsn->strmap.bcap * sizeof(jmapbucket_t);
-        reserve += jsn->strmap.bcap * sizeof(jmapbucket_t);
-        for ( size_t n = 0; n < jsn->strmap.bcap; ++n )
-        {
-            jmapbucket_t* bucket = &jsn->strmap.buckets[n];
-            if (bucket->slots)
-            {
-                mem += bucket->len*sizeof(size_t);
-                reserve += bucket->cap*sizeof(size_t);
-            }
-        }
+    stats.nums = json_mem_nums(jsn);
+    stats.arrays = json_mem_arrays(jsn);
+    stats.objs = json_mem_objs(jsn);
+    stats.strs = jmap_get_mem(&jsn->strmap);
 
-        printf("[STRING] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
+    stats.total.used = stats.nums.used + stats.arrays.used + stats.objs.used + stats.strs.used;
+    stats.total.reserved = stats.nums.reserved + stats.arrays.reserved + stats.objs.reserved + stats.strs.reserved;
 
-        total += mem;
-        total_reserve += reserve;
-    }
-
-    {
-        size_t mem = 0;
-        size_t reserve = 0;
-        mem += jsn->nums.len * sizeof(jnum_t);
-        reserve += jsn->nums.cap * sizeof(jnum_t);
-
-        printf("[NUMBERS] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(mem), btomb(reserve), mem / (double)reserve * 100);
-
-        total += mem;
-        total_reserve += reserve;
-    }
-
-    printf("[TOTAL] Used: %0.1f MB, Reserved: %0.1f MB [%0.1f%%]\n", btomb(total), btomb(total_reserve), total / (double)total_reserve * 100);
-    print_mem_usage();
-#endif
+    return stats;
 }
 
 //------------------------------------------------------------------------------

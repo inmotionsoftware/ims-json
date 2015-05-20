@@ -11,15 +11,11 @@
 
 #if __cplusplus
 
+#include "json.h"
 #include <string>
 #include <iostream>
 #include <vector>
 #include <map>
-
-extern "C"
-{
-    #include "json.h"
-}
 
 namespace ims
 {
