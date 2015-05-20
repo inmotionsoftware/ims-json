@@ -54,6 +54,8 @@ double time_call( F func )
 //------------------------------------------------------------------------------
 static void test_read()
 {
+    log_debug("starting test: '%s'", __func__);
+
     json_t* jsn = json_new();
     jerr_t err;
     if (json_load_path(jsn, path, &err) != 0)
@@ -74,6 +76,8 @@ static void test_read()
 //------------------------------------------------------------------------------
 static void test_construction()
 {
+    log_debug("starting test: '%s'", __func__);
+
     json_t* jsn = json_new();
     jobj_t root = json_root(jsn);
     {
@@ -105,6 +109,56 @@ static void test_construction()
         }
     }
 
+    assert( jval_is_true(jobj_find(root, "true")) );
+    assert( jval_is_false(jobj_find(root, "false")) );
+    assert( jval_is_bool(jobj_find(root, "true")) );
+    assert( jval_is_bool(jobj_find(root, "false")) );
+    assert( jval_is_nil(jobj_find(root, "nil")) );
+    assert( jval_is_num(jobj_find(root, "num")) );
+    assert( jval_is_str(jobj_find(root, "string")) );
+    assert( jval_is_array(jobj_find(root, "array")) );
+    assert( jval_is_obj(jobj_find(root, "obj")) );
+
+    jarray_t array = jobj_find_array(root, "array");
+    for ( size_t i = 0; i < jarray_len(array); i++ )
+    {
+        jval_t val = jarray_get(array, i);
+        switch(i)
+        {
+            case 0:
+                assert( jval_is_true(val) );
+                break;
+
+            case 1:
+                assert( jval_is_false(val) );
+                break;
+
+            case 2:
+                assert( jval_is_nil(val) );
+                break;
+
+            case 3:
+                assert( jval_is_num(val) );
+                break;
+
+            case 4:
+                assert( jval_is_obj(val) );
+                break;
+
+            case 5:
+            {
+                assert( jval_is_array(val) );
+                jarray_t sub = json_get_array(jsn, val);
+                for ( size_t n = 0; n < jarray_len(sub); n++ )
+                {
+                    jnum_t num = jarray_get_num(sub, n);
+                    assert(num == n+1);
+                }
+                break;
+            }
+        }
+    }
+
     json_print_file(jsn, JPRINT_PRETTY, stdout);
     putc('\n', stdout);
 }
@@ -112,6 +166,8 @@ static void test_construction()
 //------------------------------------------------------------------------------
 static void test_construction_cpp()
 {
+    log_debug("starting test: '%s'", __func__);
+
     ims::json jsn;
     auto root = jsn.root();
     {
@@ -137,38 +193,35 @@ static void test_construction_cpp()
     }
 
     auto it = root.find("string");
-    if (it != root.end())
-    {
-        std::cout << (*it).first << ": " << (*it).second << std::endl;
-    }
+    assert( it != root.end() && (*it).second.is_str());
 
-    std::cout << "--------------------- C++ ---------------------" << std::endl;
+//    auto it = root.find("true");
+//    assert( it != root.end() && (*it).second.is());
+
+//    auto it = root.find("string");
+//    assert( it != root.end() && (*it).second.is_str());
+
     std::cout << jsn << std::endl;
-    std::cout << "-----------------------------------------------" << std::endl;
 }
+
+typedef void (*test_func)(void);
+
+//------------------------------------------------------------------------------
+test_func TESTS[] =
+{
+    test_read,
+    test_construction,
+    test_construction_cpp,
+};
+static const size_t TEST_LEN = sizeof(TESTS)/sizeof(TESTS[0]);
 
 //------------------------------------------------------------------------------
 int main(int argc, const char * argv[])
 {
-    log_debug("starting test 'test_read'");
-    double t1 = time_call(test_read);
-    log_debug("completed in: %f secs", t1);
-
-//    log_debug("starting test 'read c++'");
-//    double t4 = time_call([]()
-//    {
-//        auto j = ims::json::from_file(path);
-//    });
-//    log_debug("completed in: %f secs", t4);
-
-//    log_debug("starting 'test_construction'");
-//    double t2 = time_call(test_construction);
-//    log_debug("completed in: %f secs", t2);
-//
-//    log_debug("starting 'test_construction_cpp'");
-//    double t3 = time_call(test_construction_cpp);
-//    log_debug("completed in: %f secs", t3);
-
-
+    for (size_t i = 0; i < TEST_LEN; i++ )
+    {
+        log_debug("-----------------------------------------------");
+        log_debug("completed in: %.2f secs", time_call(TESTS[i]));
+    }
     return 0;
 }

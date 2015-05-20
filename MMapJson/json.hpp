@@ -651,6 +651,9 @@ namespace ims
             , m_val(val)
         {}
 
+        bool is_bool() const { return jval_is_bool(m_val); }
+        bool is_false() const { return jval_is_false(m_val); }
+        bool is_true() const { return jval_is_true(m_val); }
         bool is_nil() const { return jval_is_nil(m_val); }
         bool is_str() const { return jval_is_str(m_val); }
         bool is_num() const { return jval_is_num(m_val); }
