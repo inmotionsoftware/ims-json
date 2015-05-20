@@ -42,8 +42,16 @@ struct json_t;
 //------------------------------------------------------------------------------
 /**
     An enumeration of json value types.
+
+    @constant JTYPE_NIL null json value.
+    @constant JTYPE_STR a json string value.
+    @constant JTYPE_NUM a json number type.
+    @constant JTYPE_ARRAY a json array type.
+    @constant JTYPE_OBJ a json object type.
+    @constant JTYPE_TRUE a json boolean indicating true.
+    @constant JTYPE_TRUE a json boolean indicating false.
 */
-enum jtype
+enum jtype_t
 {
     JTYPE_NIL   = 0,
     JTYPE_STR   = 1,
@@ -53,6 +61,14 @@ enum jtype
     JTYPE_TRUE  = 5,
     JTYPE_FALSE = 6
 };
+typedef enum jtype_t jtype_t;
+
+/**
+    Mask for the json types. You must bitwise AND the type against this mask to
+    check the value type in a jval_t.
+    
+    @see jval_t
+*/
 #define JTYPE_MASK 0x7
 
 //------------------------------------------------------------------------------
@@ -71,13 +87,14 @@ static const int JPRINT_ESC_UNI = 0x2;
 /**
     User function for writing json output. 
     
-    @param an opaque user pointer
-    @param a null terminated array of characters to write.
+    @param ctx an opaque user pointer
+    @param str a null terminated array of characters to write.
 */
 typedef void (*print_func)( void* ctx, const char* str);
 
 //------------------------------------------------------------------------------
 /**
+    @struct jval_t
     A struct representing a json value. Clients should not modify or access the
     fields directly as they can change between versions.
 */
@@ -100,7 +117,7 @@ typedef struct jval_t jval_t;
     @see JPRINT_PRETTY
     
     @param jsn the json doc.
-    @param the value.
+    @param val the value.
     @param flags optional output flags.
     @param p the output function for writing the json.
     @param udata opaque user pointer passed to the output function.
@@ -273,7 +290,7 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key );
     @param key the key to search.
     @param klen the length of the key.
     
-    @param the index of the matching key-value, or SIZE_T_MAX if not found.
+    @return the index of the matching key-value, or SIZE_T_MAX if not found.
 */
 size_t jobj_findl_next_idx( jobj_t obj, size_t idx, const char* key, size_t klen );
 
@@ -301,7 +318,7 @@ size_t jobj_len( jobj_t obj );
     @param obj the object.
     @param idx the index to retrieve. If the index is out of range, the results 
            are unspecified.
-    @param a pointer to hold the value returned. Must not be NULL.
+    @param val a pointer to hold the value returned. Must not be NULL.
     @return the key of the value.
 */
 const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
@@ -383,7 +400,7 @@ typedef struct jarray_t jarray_t;
     
     @param obj the object.
     @param key the key.
-    @param a newly created array.
+    @return a newly created array.
 */
 jarray_t jobj_add_array( jobj_t obj, const char* key );
 
@@ -409,7 +426,7 @@ void jarray_add_num( jarray_t a, jnum_t num );
     
     @param a the array.
     @param str the string to append.
-    @param the length of the string.
+    @param slen the length of the string.
 */
 void jarray_add_strl( jarray_t a, const char* str, size_t slen );
 
@@ -648,7 +665,7 @@ typedef struct json_t json_t;
     
     @see json_destroy
     
-    @param an uninitialized json doc. If the doc is already initialized, caller
+    @param jsn an uninitialized json doc. If the doc is already initialized, caller
            must not call this again unless the doc is destroyed.
     @return the input jsn or NULL if an error occurs.
 */
@@ -697,7 +714,7 @@ int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
     @param path the path of a local file.
     @return the status code. Non-zero for an error.
 */
-int json_print_path(json_t* j, int flags, const char* path);
+int json_print_path(json_t* jsn, int flags, const char* path);
 
 /**
     Writes the json doc to the file. The json format can be controlled by 
@@ -711,7 +728,7 @@ int json_print_path(json_t* j, int flags, const char* path);
     @param file the output FILE.
     @return the status code. Non-zero for an error.
 */
-int json_print_file(json_t* j, int flags, FILE* file);
+int json_print_file(json_t* jsn, int flags, FILE* file);
 
 /**
     Writes the json doc to the given user function. The udata is an opaque user
@@ -722,11 +739,11 @@ int json_print_file(json_t* j, int flags, FILE* file);
     
     @param jsn the json doc to write. Must not be null.
     @param flags optional flags for controlling output format.
-    @param print_func function the json data is sent to.
+    @param p function the json data is sent to.
     @param udata opac user data forwarded to the print function
     @return the status code. Non-zero for an error.
 */
-int json_print(json_t* j, int flags, print_func p, void* udata);
+int json_print(json_t* jsn, int flags, print_func p, void* udata);
 
 /**
     Writes the json doc to an in memory string. The string is allocated using
