@@ -423,7 +423,7 @@ JINLINE void print_tabs( jprint_t* ctx, size_t cnt)
 JINLINE size_t grow( size_t min, size_t cur )
 {
     static const jnum_t GROWTH_FACTOR = 1.618; // (1+sqrt(5))/2 == Golden Ratio
-    static const size_t MAX_GROWTH = 1013;
+    static const size_t MAX_GROWTH = 32*1024*1024;
     static const size_t MIN_ALLOC = 13;
 
     assert(min >= cur);

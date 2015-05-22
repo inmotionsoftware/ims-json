@@ -47,8 +47,8 @@ void exit_help(int rt)
     log_err("--out,o                Write output to file instead of stdout.");
     log_err("--suppress,s           Suppress json output, only validate.");
     log_err("--utf8,u               Escape unicode characters in strings(i.e. \\uXXXX).");
-    log_err("--format,f             Format json for human readability with multiple lines and indentions.");
-    log_err("--compact,c            Compact output by removing whitespace. [default]");
+    log_err("--format,f             Format json for human readability with multiple lines and indentions. [default]");
+    log_err("--compact,c            Compact output by removing whitespace.");
     log_err("--verbose,v            Verbose logging.");
     exit(rt);
 }
@@ -71,10 +71,10 @@ int main(int argc, char* argv[])
     };
 
     int verbose = 0;
-    int outflags = 0;
+    int outflags = JPRINT_PRETTY;
     int suppress = 0;
 
-    FILE* infile = NULL;
+    int use_stdin = 0;
     FILE* outfile = stdout;
 
     int idx;
@@ -93,7 +93,7 @@ int main(int argc, char* argv[])
                 break;
 
             case 'i':
-                infile = stdin;
+                use_stdin = 1;
                 break;
 
             case 'o':
@@ -135,16 +135,27 @@ int main(int argc, char* argv[])
     json_init(&jsn);
 
     int rt = -1;
-    if (!infile)
+    if (use_stdin)
+    {
+        // check for unexpected parameters
+        for ( int i = optind; i < argc; i++ )
+        {
+            log_err("warning!!! extra parameter will be ignored: '%s'", argv[i]);
+        }
+        rt = json_load_file(&jsn, stdin, &err);
+    }
+    else // read file from path
     {
         jsonc_assert( (argc-optind) > 0, "no input file specified");
         const char* path = argv[optind];
         jsonc_assert(path && *path, "no input file specified");
+        // check for unexpected parameters
+        for ( int i = optind+1; i < argc; i++ )
+        {
+            log_err("warning!!! extra parameter will be ignored: '%s'", argv[i]);
+        }
+
         rt = json_load_path(&jsn, path, &err);
-    }
-    else
-    {
-        rt = json_load_file(&jsn, infile, &err);
     }
 
     if (rt != 0)
