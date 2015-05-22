@@ -7,7 +7,6 @@
 //
 
 #include "json.h"
-#include "memutil.h"
 #include <math.h>
 #include <errno.h>
 #include <memory.h>
@@ -16,15 +15,6 @@
 #include <assert.h>
 #include <setjmp.h>
 #include <stdarg.h>
-
-#define JPOSIX (__unix__ || __APPLE__ && __MACH__)
-
-#if JPOSIX
-    #include <sys/mman.h>
-    #include <sys/stat.h>
-    #include <fcntl.h>
-    #include <unistd.h>
-#endif
 
 #pragma mark - macros
 
@@ -205,6 +195,40 @@ JINLINE size_t jmins( size_t m1, size_t m2 ) { return (m1<m2) ? m1 : m2; }
 
 //------------------------------------------------------------------------------
 JINLINE size_t jmaxs( size_t m1, size_t m2 ) { return (m1>m2) ? m1 : m2; }
+
+//------------------------------------------------------------------------------
+#if ( defined(__APPLE__) && defined(__MACH__) )
+    #include <fcntl.h>
+    #include <unistd.h>
+#endif
+
+//------------------------------------------------------------------------------
+JINLINE void FILE_get_path(FILE* file, char* buf, size_t blen )
+{
+    assert(buf && blen);
+
+#if __LINUX__
+    int fd = fileno(file);
+    char fdpath[JMAX_SRC_STR];
+    jsnprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", fd);
+    readlink(fdpath, buf, blen);
+
+#elif ( defined(__APPLE__) && defined(__MACH__) )
+
+    int fd = fileno(file);
+    char src[PATH_MAX];
+    if (fcntl(fd, F_GETPATH, src) == 0)
+    {
+        strncpy(buf, src, blen);
+    }
+    else
+    {
+        strncpy(buf, "?", blen);
+    }
+#else
+    *buf = '\0';
+#endif
+}
 
 //------------------------------------------------------------------------------
 JINLINE int jsnprintf( char* buf, size_t blen, const char* fmt, ... )
@@ -1474,7 +1498,8 @@ jobj_t jarray_add_obj( jarray_t _a )
 //------------------------------------------------------------------------------
 JINLINE void _jarray_print( jprint_t* ctx, jarray_t array, size_t depth )
 {
-    ctx->print(ctx->udata, "[\n");
+    ctx->print(ctx->udata, "[");
+    ctx->print(ctx->udata, ctx->newline);
     json_t* jsn = jarray_get_json(array);
     size_t len = jarray_len(array);
     for ( size_t i = 0; i < len; i++ )
@@ -1845,12 +1870,14 @@ JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
     {
         jbuf_add(str, 0xC0 + ((codepoint & 0x7C0) >> 6));
         jbuf_add(str, 0x80 + ((codepoint & 0x03F)));
+        ctx->err->col -= 1; // adjust column
     }
     else if(codepoint < 0x10000)
     {
         jbuf_add(str, 0xE0 + ((codepoint & 0xF000) >> 12));
         jbuf_add(str, 0x80 + ((codepoint & 0x0FC0) >> 6));
         jbuf_add(str, 0x80 + ((codepoint & 0x003F)));
+        ctx->err->col -= 2; // adjust column
     }
     else if(codepoint <= 0x10FFFF)
     {
@@ -1858,6 +1885,7 @@ JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
         jbuf_add(str, 0x80 + ((codepoint & 0x03F000) >> 12));
         jbuf_add(str, 0x80 + ((codepoint & 0x000FC0) >> 6));
         jbuf_add(str, 0x80 + ((codepoint & 0x00003F)));
+        ctx->err->col -= 3; // adjust column
     }
     else
     {
@@ -2366,24 +2394,9 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen,
 //------------------------------------------------------------------------------
 int json_load_file(json_t* jsn, FILE* file, jerr_t* err)
 {
-#if __LINUX__
-    int fd = fileno(file);
-    char src[JMAX_SRC_STR] = "?";
-    char fdpath[JMAX_SRC_STR];
-    jsnprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", fd);
-    readlink(fdpath, src, sizeof(src));
-
-#elif ( defined(__APPLE__) && defined(__MACH__) )
-
-    int fd = fileno(file);
-    char src[PATH_MAX];
-    if (fcntl(fd, F_GETPATH, src) < 0)
-    {
-        strcpy(src, "?");
-    }
-#endif
-
-    return _json_load_file(jsn, src, file, err);
+    char buf[JMAX_SRC_STR];
+    FILE_get_path(file, buf, JMAX_SRC_STR);
+    return _json_load_file(jsn, buf, file, err);
 }
 
 //------------------------------------------------------------------------------
@@ -2400,38 +2413,6 @@ int json_load_path(json_t* jsn, const char* path, jerr_t* err)
     assert(jsn);
     assert(path);
 
-#if JPOSIX
-    int fd = open(path, O_RDONLY);
-    if (!fd)
-    {
-        strncpy(err->msg, "could not read file", sizeof(err->msg));
-        return 1;
-    }
-
-    struct stat st;
-    int rt = fstat(fd, &st);
-    if (rt != 0)
-    {
-        close(fd);
-        strncpy(err->msg, "could not read file", sizeof(err->msg));
-        return 1;
-    }
-
-    size_t len = st.st_size;
-    if (len == 0)
-    {
-        close(fd);
-        strncpy(err->msg, "file is empty", sizeof(err->msg));
-        return 1;
-    }
-
-    void* mem = mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
-    int status = _json_load_buf(jsn, path, mem, len, err);
-    munmap(mem, len);
-
-    close(fd);
-
-#else
     FILE* file = fopen(path, "r");
     if (!file)
     {
@@ -2441,7 +2422,6 @@ int json_load_path(json_t* jsn, const char* path, jerr_t* err)
 
     int status = _json_load_file(jsn, path, file, err);
     fclose(file);
-#endif
 
     return status;
 }

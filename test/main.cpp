@@ -8,6 +8,7 @@
 
 #include <time.h>
 
+#include <libgen.h>
 #include "json.hpp"
 #include <math.h>
 #include <assert.h>
@@ -32,10 +33,10 @@ static inline void log_debug( const char* fmt, ...)
     printf("\n");
 }
 
-//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/test.json";
-const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/citylots.json";
-//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/magic.json";
-//const char* path = "/Users/bghoward/Projects/MMapJson/MMapJson/medium.json";
+const char* FILE_PATH = "test.json";
+//const char* FILE_PATH = "citylots.json";
+//const char* FILE_PATH = "magic.json";
+//const char* FILE_PATH = "medium.json";
 
 //------------------------------------------------------------------------------
 template < typename F >
@@ -59,13 +60,59 @@ static void jmem_print( jmem_stats_t* mem )
 }
 
 //------------------------------------------------------------------------------
+int json_load_mmap(json_t* jsn, const char* path, jerr_t* err)
+{
+    int fd = open(path, O_RDONLY);
+    if (!fd)
+    {
+        strncpy(err->msg, "could not read file", sizeof(err->msg));
+        return 1;
+    }
+
+    struct stat st;
+    int rt = fstat(fd, &st);
+    if (rt != 0)
+    {
+        close(fd);
+        strncpy(err->msg, "could not read file", sizeof(err->msg));
+        return 1;
+    }
+
+    size_t len = st.st_size;
+    if (len == 0)
+    {
+        close(fd);
+        strncpy(err->msg, "file is empty", sizeof(err->msg));
+        return 1;
+    }
+
+    void* mem = mmap(NULL, len, PROT_READ, MAP_SHARED, fd, 0);
+    int status = json_load_buf(jsn, mem, len, err);
+    munmap(mem, len);
+    close(fd);
+
+    return status;
+}
+
+//------------------------------------------------------------------------------
 static void test_read()
 {
     log_debug("starting test: '%s'", __func__);
 
     json_t* jsn = json_new();
     jerr_t err;
-    if (json_load_path(jsn, path, &err) != 0)
+
+    // get the current directory
+    char dbuf[255];
+    strncpy(dbuf, __FILE__, sizeof(dbuf));
+    char* dir = dirname(dbuf);
+
+    // get the full path of our json file
+    char buf[255];
+    snprintf(buf, sizeof(buf), "%s/%s", dir, FILE_PATH);
+    buf[sizeof(buf)-1] = '\0';
+
+    if (json_load_path(jsn, buf, &err) != 0)
     {
         jerr_fprint(stderr, &err);
         abort();
