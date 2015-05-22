@@ -41,7 +41,7 @@
 		E76886151B0F786000D1F1A2 /* json.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = json.c; sourceTree = "<group>"; };
 		E76886161B0F786000D1F1A2 /* json.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json.h; sourceTree = "<group>"; };
 		E76886171B0F786000D1F1A2 /* json.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
-		E77A13DB1AD5D443001068F1 /* json */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = json; sourceTree = BUILT_PRODUCTS_DIR; };
+		E77A13DB1AD5D443001068F1 /* json_test */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = json_test; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7D13DB41B0F792C00BF2C77 /* jsonc */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = jsonc; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7D13DB61B0F797300BF2C77 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		E7D13DBC1B0F79EC00BF2C77 /* libjson.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libjson.a; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -101,7 +101,7 @@
 		E77A13DC1AD5D443001068F1 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				E77A13DB1AD5D443001068F1 /* json */,
+				E77A13DB1AD5D443001068F1 /* json_test */,
 				E7D13DB41B0F792C00BF2C77 /* jsonc */,
 				E7D13DBC1B0F79EC00BF2C77 /* libjson.a */,
 			);
@@ -158,7 +158,7 @@
 			);
 			name = test;
 			productName = MMapJson;
-			productReference = E77A13DB1AD5D443001068F1 /* json */;
+			productReference = E77A13DB1AD5D443001068F1 /* json_test */;
 			productType = "com.apple.product-type.tool";
 		};
 		E7D13DAB1B0F792C00BF2C77 /* jsonc */ = {
@@ -461,6 +461,7 @@
 				E7D13DBF1B0F79EC00BF2C77 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
