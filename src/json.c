@@ -449,7 +449,8 @@ JINLINE void jprint_init_flags( jprint_t* ctx, int flags, print_func func, void*
 {
     if (flags & JPRINT_PRETTY)
     {
-        jprint_init(ctx, "    ", "\n");
+
+        jprint_init(ctx, "    ", (flags&JPRINT_NEWLINE_WIN) ? "\r\n" : "\n");
     }
     else
     {

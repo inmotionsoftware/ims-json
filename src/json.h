@@ -29,6 +29,119 @@
     A flexible serializer is provided with built in functions for writing to a
     FILE or a memory buffer. For more advanced options, the caller can provide
     a user defined output function.
+    
+    Examples:
+     
+    Parsing a json doc from a file path.
+    @code
+    const char* path = "path/to/json";
+
+    json_t jsn;
+    json_init(&jsn);
+
+    jerr_t err;
+    if (json_load_path(&jsn, path, &err) != 0)
+    {
+        // error!!!
+        jerr_fprint(stderr, err);
+    }
+    json_destroy(&jsn);
+    @endcode
+    
+    Parsing a json doc from a c-string.
+    @code
+    jerr_t err;
+    json_t jsn;
+    json_init(&jsn);
+    if (json_load_str(&jsn, "{\"key\": 1}", &err) != 0)
+    {
+        // error!!!
+        jerr_fprint(stderr, err);
+    }
+    json_destroy(&jsn);
+    @endcode
+    
+    Parsing a json doc from a buffer.
+    @code
+    char buf[] = "{\"key\": 1}";
+    size_t buflen = sizeof(buf);
+
+    jerr_t err;
+    json_t jsn;
+    json_init(&jsn);
+    if (json_load_buf(&jsn, buf, buflen, &err) != 0)
+    {
+        // error!!!
+        jerr_fprint(stderr, err);
+    }
+    json_destroy(&jsn);
+    @endcode
+    
+    Constructing a json file dynamically.
+    @code
+    json_t jsn;
+    json_init(&jsn);
+    jobj_t root = json_root(&jsn);
+    {
+        jobj_add_bool(root, "true", true);
+        jobj_add_bool(root, "false", false);
+        jobj_add_nil(root, "nil");
+        jobj_add_num(root, "num", 3.14);
+        jobj_add_str(root, "string", "string");
+        jobj_t obj = jobj_add_obj(root, "obj");
+        {
+            jobj_add_str(obj, "key", "child");
+        }
+        jarray_t array = jobj_add_array(root, "array");
+        {
+            jarray_add_bool(array, true);
+            jarray_add_bool(array, false);
+            jarray_add_nil(array);
+            jarray_add_num(array, 5.5);
+            jobj_t subobj = jarray_add_obj(array);
+            {
+                jobj_add_bool(subobj, "true", true);
+            }
+            jarray_t subarray = jarray_add_array(array);
+            {
+                jarray_add_num(subarray, 1);
+                jarray_add_num(subarray, 2);
+                jarray_add_num(subarray, 3);
+            }
+        }
+    }
+    json_destroy(&jsn);
+    @endcode
+
+    Write a json file to a file.
+    @code
+    json_t jsn;
+    // load json...
+    int flags = JPRINT_PRETTY|JPRINT_ESC_UNI;
+    if (json_print_file(&jsn, flags, stdout) != 0)
+    {
+        // error!!!
+    }
+    json_destroy(&jsn);
+    @endcode
+    
+    Create a json string.
+    @code
+    json_t jsn;
+    // load json...
+    int flags = JPRINT_PRETTY|JPRINT_ESC_UNI;
+    char* str = json_to_str(&jsn, flags);
+    if (!str)
+    {
+        // error...
+    }
+
+    // do stuff...
+
+    free(str); // must free string when done
+    json_destroy(&jsn);
+    @endcode
+
 */
 #ifndef __MMapJson__json2__
 #define __MMapJson__json2__
@@ -109,6 +222,13 @@ static const int JPRINT_PRETTY = 0x1;
     sequence is \uXXXX.
 */
 static const int JPRINT_ESC_UNI = 0x2;
+
+/*!
+    @constant JPRINT_NEWLINE_WIN
+    Output flag for printing output with windows style '\\r\\n' newlines. The
+    default behavior is to use unix style single '\\n' characters.
+*/
+static const int JPRINT_NEWLINE_WIN = 0x4;
 
 /*!
     User function for writing json output. 
@@ -810,6 +930,22 @@ json_t* json_init( json_t* jsn );
 /*!
     Loads a json doc from the local filesystem at the given path. 
     
+    Example:
+    @code
+    const char* path = "path/to/json";
+
+    json_t jsn;
+    json_init(&jsn);
+
+    jerr_t err;
+    if (json_load_path(&jsn, path, &err) != 0)
+    {
+        // error!!!
+        jerr_fprint(stderr, err);
+    }
+    json_destroy(&jsn);
+    @endcode
+    
     @param jsn the json doc to load
     @param path the local path to the json file
     @param err pointer to store error info on failure
@@ -830,6 +966,22 @@ int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
 /*!
     Loads a json doc from a memory buffer of the given length.
     
+    Example:
+    @code
+    char buf[] = "{\"key\": 1}";
+    size_t buflen = sizeof(buf);
+
+    jerr_t err;
+    json_t jsn;
+    json_init(&jsn);
+    if (json_load_buf(&jsn, buf, buflen, &err) != 0)
+    {
+        // error!!!
+        jerr_fprint(stderr, err);
+    }
+    json_destroy(&jsn);
+    @endcode
+    
     @param jsn the json doc to load.
     @param buf a memory buffer with a json doc.
     @param blen the length of the memory buffer.
@@ -837,6 +989,30 @@ int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
     @return the status code. Non-zero for an error.
 */
 int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
+
+/*!
+    @function json_load_str
+    Loads a json doc from a non-NULL c-string.
+    
+    Example:
+    @code
+    jerr_t err;
+    json_t jsn;
+    json_init(&jsn);
+    if (json_load_str(&jsn, "{\"key\": 1}", &err) != 0)
+    {
+        // error!!!
+        jerr_fprint(stderr, err);
+    }
+    json_destroy(&jsn);
+    @endcode
+    
+    @param JSN the json doc to load.
+    @param CSTR a c-string, must not be NULL.
+    @param ERR pointer to store error info on failure.
+    @return the status code. Non-zero for an error.
+*/
+#define json_load_str(JSN, CSTR, ERR) json_load_buf(JSN, CSTR, strlen(CSTR), ERR)
 
 /*!
     Writes the json doc to the file. The json format can be controlled by 
@@ -858,6 +1034,18 @@ int json_print_path(json_t* jsn, int flags, const char* path);
     
     @ref JPRINT_PRETTY output in a "pretty" format, adding newlines and tabs
     @ref JPRINT_ESC_UNI escape unicode chars with the format \uXXXX
+    
+    Example:
+    @code
+    json_t jsn;
+    // load json...
+    int flags = JPRINT_PRETTY|JPRINT_ESC_UNI;
+    if (json_print_file(&jsn, flags, stdout) != 0)
+    {
+        // error!!!
+    }
+    json_destroy(&jsn);
+    @endcode
     
     @param jsn the json doc to write. Must not be null.
     @param flags optional flags for controlling output format.
@@ -887,6 +1075,24 @@ int json_print(json_t* jsn, int flags, print_func p, void* udata);
     
     @ref JPRINT_PRETTY output in a "pretty" format, adding newlines and tabs
     @ref JPRINT_ESC_UNI escape unicode chars with the format \uXXXX
+    
+    Example:
+    @code
+    json_t jsn;
+    // load json...
+
+    int flags = JPRINT_PRETTY|JPRINT_ESC_UNI;
+    char* str = json_to_str(&jsn, flags);
+    if (!str)
+    {
+        // error...
+    }
+
+    // do stuff...
+
+    free(str); // must free string when done
+    json_destroy(&jsn);
+    @endcode
     
     @param jsn the json doc to serialize. Must not be null.
     @param flags optional flags for controlling output format.
