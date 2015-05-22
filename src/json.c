@@ -1870,14 +1870,12 @@ JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
     {
         jbuf_add(str, 0xC0 + ((codepoint & 0x7C0) >> 6));
         jbuf_add(str, 0x80 + ((codepoint & 0x03F)));
-        ctx->err->col -= 1; // adjust column
     }
     else if(codepoint < 0x10000)
     {
         jbuf_add(str, 0xE0 + ((codepoint & 0xF000) >> 12));
         jbuf_add(str, 0x80 + ((codepoint & 0x0FC0) >> 6));
         jbuf_add(str, 0x80 + ((codepoint & 0x003F)));
-        ctx->err->col -= 2; // adjust column
     }
     else if(codepoint <= 0x10FFFF)
     {
@@ -1885,7 +1883,6 @@ JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
         jbuf_add(str, 0x80 + ((codepoint & 0x03F000) >> 12));
         jbuf_add(str, 0x80 + ((codepoint & 0x000FC0) >> 6));
         jbuf_add(str, 0x80 + ((codepoint & 0x00003F)));
-        ctx->err->col -= 3; // adjust column
     }
     else
     {
