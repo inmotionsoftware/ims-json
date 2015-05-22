@@ -239,7 +239,7 @@ JINLINE int jsnprintf( char* buf, size_t blen, const char* fmt, ... )
     va_start(args, fmt);
     int rt = vsnprintf(buf, blen, fmt, args);
     va_end(args);
-    buf[blen-1] = 0;
+    buf[blen-1] = '\0';
     return rt;
 }
 
@@ -251,9 +251,10 @@ JINLINE void _json_assert(jcontext_t* ctx, jbool_t b, const char* fmt, ...)
 
     va_list args;
     va_start(args, fmt);
-    jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), fmt, args);
+    vsnprintf(ctx->err->msg, sizeof(ctx->err->msg), fmt, args);
     va_end(args);
-
+    ctx->err->msg[sizeof(ctx->err->msg)-1] = '\0';
+    va_end(args);
     json_do_err(ctx);
 }
 
@@ -322,6 +323,92 @@ JINLINE size_t next_prime(size_t x)
         }
     }
 }
+
+//------------------------------------------------------------------------------
+JINLINE int utf8_bytes( int ch )
+{
+    if (ch < 0x80)
+    {
+        return 1;
+    }
+    else if ( (ch & 0xE0) == 0xC0 )
+    {
+        return 2;
+    }
+    else if ( (ch & 0xF0) == 0xE0 )
+    {
+        return 3;
+    }
+    else if ( (ch & 0xF8) == 0xF0 )
+    {
+        return 4;
+    }
+    else if ( (ch & 0xFC) == 0xF8 )
+    {
+        return 5;
+    }
+    else if ( (ch & 0xFE) == 0xFC )
+    {
+        return 6;
+    }
+
+    assert(JFALSE);
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
+{
+    uint32_t codepoint = 0;
+    switch(utf8_bytes(*str&0xFF))
+    {
+        case 1:
+            codepoint = *str;
+            break;
+        case 2:
+            codepoint = (*str++&0x1F) << 5;
+            codepoint = (codepoint << 6) | (*str&0x3F);
+            break;
+
+        case 3:
+            codepoint = (*str++&0xF) << 4;
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str&0x3F);
+            break;
+
+        case 4:
+            codepoint = (*str++&0x7) << 3;
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str&0x3F);
+            break;
+        case 5:
+            codepoint = (*str++&0x3) << 2;
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str&0x3F);
+            break;
+
+        case 6:
+            codepoint = (*str++&0x1) << 1;
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str++&0x3F);
+            codepoint = (codepoint << 6) | (*str&0x3F);
+            break;
+
+        default:
+            assert(JFALSE);
+            break;
+    }
+
+    assert(_codepoint);
+    *_codepoint = codepoint;
+    return str;
+}
+
 
 //------------------------------------------------------------------------------
 JINLINE void print_tabs( jprint_t* ctx, size_t cnt)
@@ -699,64 +786,6 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 }
 
 #pragma mark - jval_t
-
-//------------------------------------------------------------------------------
-JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
-{
-    uint32_t codepoint = 0;
-    if ( (*str&0xFF) < 0x80)
-    {
-        codepoint = *str;
-    }
-    else if ( (*str & 0xE0) == 0xC0 )
-    {
-        // 2 bytes
-        codepoint = (*str++&0x1F) << 5;
-        codepoint = (codepoint << 6) | (*str&0x3F);
-    }
-    else if ( (*str & 0xF0) == 0xE0 )
-    {
-        // 3 bytes
-        codepoint = (*str++&0xF) << 4;
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str&0x3F);
-    }
-    else if ( (*str & 0xF8) == 0xF0 )
-    {
-        // 4 bytes
-        codepoint = (*str++&0x7) << 3;
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str&0x3F);
-    }
-    else if ( (*str & 0xFC) == 0xF8 )
-    {
-        // 5 bytes
-        codepoint = (*str++&0x3) << 2;
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str&0x3F);
-    }
-    else if ( (*str & 0xFE) == 0xFC )
-    {
-        // 6 bytes
-        codepoint = (*str++&0x1) << 1;
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str++&0x3F);
-        codepoint = (codepoint << 6) | (*str&0x3F);
-    }
-    else
-    {
-        assert(0);
-    }
-
-    assert(_codepoint);
-    *_codepoint = codepoint;
-    return str;
-}
 
 //------------------------------------------------------------------------------
 JINLINE void json_print_str( jprint_t* ctx, const char* str )
@@ -2106,6 +2135,12 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                         return;
 
                     default:
+                        // make sure this is not carry over byte
+                        if ((ch & 0xC0) != 0x80)
+                        {
+                            // adjust the column based on unicode chars
+                            ctx->err->col -= ( utf8_bytes(ch)-1 );
+                        }
                         jbuf_add(str, (char)ch);
                         break;
                 }

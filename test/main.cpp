@@ -115,7 +115,7 @@ static void test_read()
     if (json_load_path(jsn, buf, &err) != 0)
     {
         jerr_fprint(stderr, &err);
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     jmem_stats_t mem = json_get_mem(jsn);
