@@ -2525,15 +2525,15 @@ jmem_stats_t json_get_mem(json_t* jsn)
 //------------------------------------------------------------------------------
 JINLINE void compile_macros()
 {
-    json_new();
-    jobj_t obj;
-    jarray_t array;
-    jval_t val;
-    const char* key;
-    const char* str;
+    json_t* jsn = json_new();
+    jobj_t obj = json_root(jsn);
+    jarray_t array = jobj_find_array(obj, "");
+    jval_t val = jarray_get(array, 0);
+    const char* key = "";
+    const char* str = "";
     jerr_t err;
-    FILE* file;
-    size_t idx;
+    FILE* file = NULL;
+    size_t idx = 0;
 
     jobj_find(obj, key);
     jobj_find_array(obj, key);
@@ -2565,4 +2565,6 @@ JINLINE void compile_macros()
     jval_is_true(val);
     jval_is_false(val);
     jval_is_bool(val);
+
+    json_free(jsn);
 }
