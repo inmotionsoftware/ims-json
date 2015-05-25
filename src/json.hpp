@@ -38,6 +38,11 @@
 namespace ims
 {
     //--------------------------------------------------------------------------
+    /**
+        Json object. This is a thin wrapper around a json_t structure.
+        
+        @see jobj_t for more details.
+    */
     class obj
     {
         friend class json;
@@ -46,6 +51,9 @@ namespace ims
         friend class const_val;
     public:
 
+        /**
+            object iterator. Iterates each key-value pair in the parent object.
+        */
         class iterator
         {
         public:
@@ -65,9 +73,33 @@ namespace ims
             size_t m_idx;
         };
 
+        /**
+            Compares this object against another to see if they are equal.
+
+            @param o another object to compare against.
+            @return if this object is equal to another.
+        */
         bool operator== ( const obj& o ) const { return m_obj.json == o.m_obj.json && m_obj.idx == o.m_obj.idx; }
+
+        /**
+            Compares this object against another, returns true if the object is 
+            not equal to this one.
+
+            @param o another object to compare against.
+            @return if this object is not equal to another.
+        */
         bool operator!= ( const obj& o ) const { return !this->operator==(o); }
+
+        /**
+            iterator pointing to the first key-value pair of this object.
+            @return the end iterator.
+        */
         iterator begin() const { return iterator(*this, 0); }
+
+        /**
+            iterator pointing beyond the last key-value pair of this object.
+            @return the end iterator.
+        */
         iterator end() const { return iterator(*this, this->size()); }
 
         class setter
@@ -126,48 +158,107 @@ namespace ims
             obj& m_obj;
         };
 
+        /**
+            Checks whether or not this is an empty json object.
+            
+            @return true if this object is empty.
+        */
         bool empty() const { return size() == 0; }
+
+        /**
+            Gets the number of key-value pairs in this object.
+            @return the number of key-value pairs in this object.
+        */
         size_t size() const { return jobj_len(m_obj); }
 
+        /**
+            Adds a string to the object.
+            
+            @param key the key.
+            @param str the string value.
+            @return a reference to the object.
+        */
         obj& add ( const char* key, const std::string& str )
         {
             jobj_add_strl(m_obj, key, str.c_str(), str.length());
             return *this;
         }
 
+        /**
+            Adds a string to the object.
+            
+            @param key the key.
+            @param str the string value.
+            @return a reference to the object.
+        */
         obj& add ( const char* key, const char* str )
         {
             jobj_add_str(m_obj, key, str);
             return *this;
         }
 
+        /**
+            Adds an integer to this object.
+            
+            @param key the key.
+            @param n the int value.
+            @return a reference to the object.
+        */
         obj& add ( const char* key, int n )
         {
             jobj_add_num(m_obj, key, n);
             return *this;
         }
 
+        /**
+            Adds a number to the object.
+            
+            @param key the key.
+            @param n the number value.
+            @return a reference to the object.
+        */
         obj& add ( const char* key, jnum_t n )
         {
             jobj_add_num(m_obj, key, n);
             return *this;
         }
 
+        /**
+            Adds a boolean to the object.
+            
+            @param key the key.
+            @param b the boolean value.
+            @return a reference to the object.
+        */
         obj& add ( const char* key, bool b )
         {
             jobj_add_bool(m_obj, key, b);
             return *this;
         }
 
-        obj& add ( const char* key, std::nullptr_t )
+        /**
+            Adds a nil to the object.
+            
+            @param key the key.
+            @param n the nil value.
+            @return a reference to the object.
+        */
+        obj& add ( const char* key, std::nullptr_t n )
         {
             jobj_add_nil(m_obj, key);
             return *this;
         }
 
-        iterator find( const std::string& str )
+        /**
+            Finds the first value matching the key.
+            
+            @param key the key.
+            @return an iterator pointing to the value, or an iterator equal to 
+                    the end iterator if not found.
+        */
+        iterator find( const std::string& key )
         {
-            size_t idx = jobj_findl_idx(m_obj, str.c_str(), str.length());
+            size_t idx = jobj_findl_idx(m_obj, key.c_str(), key.length());
             if (idx == SIZE_T_MAX)
             {
                 return end();
@@ -175,15 +266,58 @@ namespace ims
             return iterator(*this, idx);
         }
 
-        setter operator[] ( const std::string& key ) { return setter(key.c_str(), *this); }
+        /**
+            Gets a setter for this object with the given key. This is used for
+            making key-value assignments.
+            
+            @code
+            json jsn;
+            auto root = jsn.root();
+            root["key"] = value
+            @endcode
+            
+            @param key the key.
+            @return a setter ready for making a value assignment.
+        */
+        setter operator[] ( const std::string& key ) { return this->operator[](key.c_str()); }
+
+        /**
+            Gets a setter for this object with the given key. This is used for
+            making key-value assignments.
+            
+            @code
+            json jsn;
+            auto root = jsn.root();
+            root["key"] = value
+            @endcode
+            
+            @param key the key.
+            @return a setter ready for making a value assignment.
+        */
         setter operator[] ( const char* key ) { return setter(key, *this); }
+
+        /**
+            Add and returns a new object with the given key.
+            @param key the key.
+            @return a newly created object.
+        */
         obj add_obj( const char* key ) { return jobj_add_obj(m_obj, key); }
+
+        /**
+            Add and returns a new array with the given key.
+            @param key the key.
+            @return a newly created array.
+        */
         class array add_array( const char* key );
 
         friend std::ostream& operator<< ( std::ostream& os, const obj& o );
 
     protected:
 
+        /**
+            Internal obj constructor
+            @param o the parent object.
+        */
         obj( jobj_t o )
             : m_obj(o)
         {}
@@ -195,6 +329,12 @@ namespace ims
     };
 
     //--------------------------------------------------------------------------
+
+    /**
+        json array. This is a thin wrapper around jarray_t.
+        
+        @see jarray_t for more detalis.
+    */
     class array
     {
         friend class json;
@@ -223,23 +363,51 @@ namespace ims
             size_t m_idx;
         };
 
+        /**
+            Pushes a new object on to the end of this array and returns a 
+            reference to it. 
+            
+            @return a new object pushed to end of this array.
+        */
         obj push_obj() { return jarray_add_obj(m_array); }
+
+        /**
+            Pushes a new array on to the end of this array and returns a 
+            reference to it.
+            
+            @return a new array pushed to end of this array.
+        */
         array push_array() { return jarray_add_array(m_array); }
 
-        template < typename T >
-        void add( const T& t ) { push_back(t); }
-
         template < typename T, typename... ARGS >
-        void add( const T& t, const ARGS&... args ) { push_back(t); add(args...); }
+        array& push_back( const T& t, const ARGS&... args ) { push_back(t); return push_back(args...); }
 
         iterator begin() const { return iterator(*this, 0); }
         iterator end() const { return iterator(*this, size()); }
         bool operator== ( const array& a ) const { return m_array.json == a.m_array.json && m_array.idx == a.m_array.idx; }
         size_t size() const { return jarray_len(m_array); }
 
+        array& push_back( int n )
+        {
+            jarray_add_num(m_array, n);
+            return *this;
+        }
+
         array& push_back( jnum_t n )
         {
             jarray_add_num(m_array, n);
+            return *this;
+        }
+
+        array& push_back( size_t n )
+        {
+            jarray_add_num(m_array, n);
+            return *this;
+        }
+
+        array& push_back( bool b )
+        {
+            jarray_add_bool(m_array, b);
             return *this;
         }
 
@@ -249,6 +417,7 @@ namespace ims
             return *this;
         }
 
+        array& push_back( const std::string& s ) { return push_back(s.c_str()); }
         array& push_back( const char* s )
         {
             jarray_add_str(m_array, s);
@@ -339,8 +508,26 @@ namespace ims
 
         bool operator!() const { return empty(); }
         operator bool () const { return !empty(); }
+
+        /**
+            Tests whether or not this json document is empty or null.
+            @return true if this json document is empty or null.
+        */
         bool empty() const { return m_jsn == nullptr || root().empty(); }
 
+        /**
+            Tests whether or not this json document is null.
+            @return true if this json document is null.
+        */
+        bool is_null() const { return m_jsn == nullptr; }
+
+        /**
+            Move assignment. Moves the internal data structure from the given
+            json document to this one. Clears out the source json document.
+            
+            @param mv the json document to move.
+            @return a reference to this json document.
+        */
         json& operator= ( json&& mv )
         {
             json_free(m_jsn);
@@ -349,8 +536,22 @@ namespace ims
             return *this;
         }
 
+        /**
+            Gets the root object for this json document.
+            @return the root object.
+        */
         obj root() const { return json_root(m_jsn); }
 
+        /**
+            Converts this json document into a string using the given options.
+            
+            @see JPRINT_PRETTY
+            @see JPRINT_ESC_UNI
+            @see JPRINT_NEWLINE_WIN
+
+            @param flags the json format options.
+            @return a json string.
+        */
         std::string str( int flags = JPRINT_PRETTY ) const
         {
             std::string str;
