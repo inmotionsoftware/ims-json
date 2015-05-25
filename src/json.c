@@ -1802,20 +1802,23 @@ JINLINE void jcontext_destroy(jcontext_t* ctx)
 #pragma mark - parse
 
 //------------------------------------------------------------------------------
-JINLINE int jpeek( jcontext_t* ctx )
+JINLINE void jcontext_read_file( jcontext_t* ctx )
 {
-    if (ctx->file && ctx->beg == ctx->end) // need to read more data from file?
-    {
-        // read file into buffer
-        size_t len = fread(ctx->buf, 1, IO_BUF_SIZE, ctx->file);
-        if (len == 0 && feof(ctx->file) != 0)
-        {
-            json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", strerror(errno));
-        }
-        ctx->beg = ctx->buf;
-        ctx->end = ctx->beg + len;
-    }
+    if (ctx->beg != ctx->end) return;
 
+    // read file into buffer
+    size_t len = fread(ctx->buf, 1, IO_BUF_SIZE, ctx->file);
+    if (len == 0 && feof(ctx->file) != 0)
+    {
+        json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", strerror(errno));
+    }
+    ctx->beg = ctx->buf;
+    ctx->end = ctx->beg + len;
+}
+
+//------------------------------------------------------------------------------
+JINLINE int jcontext_peek( jcontext_t* ctx )
+{
     if (ctx->beg == ctx->end)
     {
         return EOF;
@@ -1824,17 +1827,21 @@ JINLINE int jpeek( jcontext_t* ctx )
 }
 
 //------------------------------------------------------------------------------
-JINLINE int jnext( jcontext_t* ctx )
+JINLINE int jcontext_next( jcontext_t* ctx )
 {
     ++ctx->err->col;
     ++ctx->beg;
-    return jpeek(ctx);
+    if (ctx->file)
+    {
+        jcontext_read_file(ctx);
+    }
+    return jcontext_peek(ctx);
 }
 
 //------------------------------------------------------------------------------
 JINLINE void parse_whitespace( jcontext_t* ctx )
 {
-    for ( int ch = jpeek(ctx); ch >= 0; ch = jnext(ctx) )
+    for ( int ch = jcontext_peek(ctx); ch >= 0; ch = jcontext_next(ctx) )
     {
         switch(ch)
         {
@@ -1923,15 +1930,15 @@ JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
 //------------------------------------------------------------------------------
 JINLINE jnum_t parse_sign( jcontext_t* ctx )
 {
-    int ch = jpeek(ctx);
+    int ch = jcontext_peek(ctx);
     switch (ch)
     {
         case '-':
-            jnext(ctx);
+            jcontext_next(ctx);
             return -1;
 
         case '+':
-            jnext(ctx);
+            jcontext_next(ctx);
             return 1;
 
         default:
@@ -1943,7 +1950,7 @@ JINLINE jnum_t parse_sign( jcontext_t* ctx )
 JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
 {
     jnum_t num = 0;
-    for ( int ch = jpeek(ctx), cnt = 0; ch >= 0; ch = jnext(ctx), ++cnt )
+    for ( int ch = jcontext_peek(ctx), cnt = 0; ch >= 0; ch = jcontext_next(ctx), ++cnt )
     {
         switch (ch)
         {
@@ -1993,12 +2000,12 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
     jnum_t num = parse_digits(ctx);
 
     // fraction
-    switch (jpeek(ctx))
+    switch (jcontext_peek(ctx))
     {
         case '.':
         {
             isint = JFALSE;
-            jnext(ctx);
+            jcontext_next(ctx);
             size_t places = 1;
             jnum_t fract = parse_digitsp(ctx, &places);
             num += fract / places;
@@ -2010,13 +2017,13 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
     }
 
     // scientific notation
-    switch (jpeek(ctx))
+    switch (jcontext_peek(ctx))
     {
         case 'e':
         case 'E':
         {
             isint = JFALSE;
-            jnext(ctx);
+            jcontext_next(ctx);
             jnum_t esign = parse_sign(ctx);
             jnum_t digits = parse_digits(ctx);
             num *= pow(10, esign*digits);
@@ -2036,16 +2043,16 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
 //------------------------------------------------------------------------------
 JINLINE unsigned int parse_unicode_hex(jcontext_t* ctx)
 {
-    return char_to_hex(ctx, jpeek(ctx)) << 12 |
-           char_to_hex(ctx, jnext(ctx)) << 8 |
-           char_to_hex(ctx, jnext(ctx)) << 4 |
-           char_to_hex(ctx, jnext(ctx));
+    return char_to_hex(ctx, jcontext_peek(ctx)) << 12 |
+           char_to_hex(ctx, jcontext_next(ctx)) << 8 |
+           char_to_hex(ctx, jcontext_next(ctx)) << 4 |
+           char_to_hex(ctx, jcontext_next(ctx));
 }
 
 //------------------------------------------------------------------------------
 JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
 {
-    json_assert(jpeek(ctx) == 'u', "not a valid unicode sequence"); jnext(ctx);
+    json_assert(jcontext_peek(ctx) == 'u', "not a valid unicode sequence"); jcontext_next(ctx);
 
     // U+XXXX
     unsigned int val = parse_unicode_hex(ctx);
@@ -2054,8 +2061,8 @@ JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
     // surrogate pair, \uXXXX\uXXXXX
     if (0xD800 <= val && val <= 0xDBFF)
     {
-        json_assert(jnext(ctx) == '\\', "invalid unicode");
-        json_assert(jnext(ctx) == 'u', "invalid unicode");
+        json_assert(jcontext_next(ctx) == '\\', "invalid unicode");
+        json_assert(jcontext_next(ctx) == 'u', "invalid unicode");
 
         // read the surrogate pair from the stream
         unsigned int val2 = parse_unicode_hex(ctx);
@@ -2074,12 +2081,12 @@ JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
 //------------------------------------------------------------------------------
 JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
 {
-    int prev = jpeek(ctx);
+    int prev = jcontext_peek(ctx);
     json_assert(prev == '"', "Expected a String, found: '%c'", prev);
 
     jbuf_clear(str);
 
-    for (int ch = jnext(ctx); ch >= 0; ch = jnext(ctx) )
+    for (int ch = jcontext_next(ctx); ch >= 0; ch = jcontext_next(ctx) )
     {
         switch (prev)
         {
@@ -2131,7 +2138,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                         break;
 
                     case '"':
-                        jnext(ctx);
+                        jcontext_next(ctx);
                         jbuf_add(str, '\0');
                         return;
 
@@ -2157,7 +2164,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
 //------------------------------------------------------------------------------
 JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
 {
-    int prev = jpeek(ctx); jnext(ctx);
+    int prev = jcontext_peek(ctx); jcontext_next(ctx);
     json_assert(prev == '[', "Expected an array, found: '%c'", prev);
     json_t* jsn = array.json;
 
@@ -2167,19 +2174,19 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
         size_t len = jarray_len(array);
 
         parse_whitespace(ctx);
-        switch(jpeek(ctx))
+        switch(jcontext_peek(ctx))
         {
             case ',':
             {
                 json_assert(len == ++count, "expected value after ','");
-                jnext(ctx);
+                jcontext_next(ctx);
                 break;
             }
 
             case ']':
             {
                 json_assert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
-                jnext(ctx);
+                jcontext_next(ctx);
                 jarray_truncate(array);
                 return;
             }
@@ -2198,7 +2205,7 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
 //------------------------------------------------------------------------------
 JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
 {
-    int prev = jpeek(ctx); jnext(ctx);
+    int prev = jcontext_peek(ctx); jcontext_next(ctx);
     json_assert(prev == '{', "Expected an object, found: '%c'", prev);
     json_t* jsn = jobj_get_json(obj);
 
@@ -2208,19 +2215,19 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
         size_t len = jobj_len(obj);
 
         parse_whitespace(ctx);
-        switch (jpeek(ctx))
+        switch (jcontext_peek(ctx))
         {
             case ',':
             {
                 json_assert(len == ++count, "expected key/value after ','");
-                jnext(ctx);
+                jcontext_next(ctx);
                 break;
             }
 
             case '}':
             {
                 json_assert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
-                jnext(ctx);
+                jcontext_next(ctx);
                 jobj_truncate(obj);
                 return;
             }
@@ -2234,7 +2241,7 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
                 size_t kvidx = jobj_add_keyl(obj, key, ctx->strbuf.len);
 
                 parse_whitespace(ctx);
-                json_assert(jpeek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jpeek(ctx)); jnext(ctx);
+                json_assert(jcontext_peek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jcontext_peek(ctx)); jcontext_next(ctx);
                 parse_whitespace(ctx);
 
                 jkv_set_val(obj, kvidx, parse_val(jsn, ctx));
@@ -2247,7 +2254,7 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
 //------------------------------------------------------------------------------
 JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
 {
-    int ch = jpeek(ctx);
+    int ch = jcontext_peek(ctx);
     switch(ch)
     {
         case '{': // obj
@@ -2272,22 +2279,22 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
         }
 
         case 't': // true
-            json_assert( jnext(ctx) == 'r', "expected literal 'true'");
-            json_assert( jnext(ctx) == 'u', "expected literal 'true'");
-            json_assert( jnext(ctx) == 'e', "expected literal 'true'"); jnext(ctx);
+            json_assert( jcontext_next(ctx) == 'r', "expected literal 'true'");
+            json_assert( jcontext_next(ctx) == 'u', "expected literal 'true'");
+            json_assert( jcontext_next(ctx) == 'e', "expected literal 'true'"); jcontext_next(ctx);
             return (jval_t){JTYPE_TRUE, 0};
 
         case 'f': // false
-            json_assert( jnext(ctx) == 'a', "expected literal 'false'");
-            json_assert( jnext(ctx) == 'l', "expected literal 'false'");
-            json_assert( jnext(ctx) == 's', "expected literal 'false'");
-            json_assert( jnext(ctx) == 'e', "expected literal 'false'"); jnext(ctx);
+            json_assert( jcontext_next(ctx) == 'a', "expected literal 'false'");
+            json_assert( jcontext_next(ctx) == 'l', "expected literal 'false'");
+            json_assert( jcontext_next(ctx) == 's', "expected literal 'false'");
+            json_assert( jcontext_next(ctx) == 'e', "expected literal 'false'"); jcontext_next(ctx);
             return (jval_t){JTYPE_FALSE, 0};
 
         case 'n': // null
-            json_assert( jnext(ctx) == 'u', "expected literal 'null'");
-            json_assert( jnext(ctx) == 'l', "expected literal 'null'");
-            json_assert( jnext(ctx) == 'l', "expected literal 'null'"); jnext(ctx);
+            json_assert( jcontext_next(ctx) == 'u', "expected literal 'null'");
+            json_assert( jcontext_next(ctx) == 'l', "expected literal 'null'");
+            json_assert( jcontext_next(ctx) == 'l', "expected literal 'null'"); jcontext_next(ctx);
             return (jval_t){JTYPE_NIL, 0};
 
         case '-': // number
@@ -2350,7 +2357,7 @@ int json_parse_file( json_t* jsn, jcontext_t* ctx )
 
     if (setjmp(ctx->jerr_jmp) == 0)
     {
-        int ch = jpeek(ctx);
+        int ch = jcontext_peek(ctx);
         switch (ch)
         {
             case '{':
@@ -2380,6 +2387,7 @@ JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* er
 
     jcontext_t ctx;
     jcontext_init_file(&ctx, file);
+    jcontext_read_file(&ctx);
 
     jerr_init_src(err, src);
     ctx.err = err;

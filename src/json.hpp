@@ -728,4 +728,4 @@ namespace ims
 }
 
 #endif // __cplusplus
-#endif // MMapJson_json_hpp
+#endif // __json_hpp__

@@ -144,8 +144,8 @@
     @endcode
 
 */
-#ifndef __MMapJson__json2__
-#define __MMapJson__json2__
+#ifndef __json_h__
+#define __json_h__
 
 #include <stdio.h>
 #include <stdint.h>
@@ -1275,4 +1275,4 @@ jmem_stats_t json_get_mem( json_t* jsn );
 } // extern "C"
 #endif
 
-#endif /* defined(__MMapJson__json2__) */
+#endif /* defined(__json_h__) */

@@ -33,8 +33,8 @@ static inline void log_debug( const char* fmt, ...)
     printf("\n");
 }
 
-const char* FILE_PATH = "test.json";
-//const char* FILE_PATH = "citylots.json";
+//const char* FILE_PATH = "test.json";
+const char* FILE_PATH = "citylots.json";
 //const char* FILE_PATH = "magic.json";
 //const char* FILE_PATH = "medium.json";
 
