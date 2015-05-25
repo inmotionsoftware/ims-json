@@ -29,7 +29,6 @@
     #define JINLINE static inline
 #endif
 
-
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
 #define MAX_KEY_IDX UINT32_MAX
@@ -44,6 +43,7 @@
 
 //------------------------------------------------------------------------------
 typedef uint32_t jhash_t;
+typedef uint32_t jsize_t;
 
 //------------------------------------------------------------------------------
 struct jbuf_t

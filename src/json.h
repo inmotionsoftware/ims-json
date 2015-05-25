@@ -1,4 +1,5 @@
 /*!
+    @file
     @header json.h
     @author Brian Howard
     @copyright 2015 InMotion Software, LLC. All rights reserved.
@@ -156,9 +157,15 @@ namespace ims {
 #endif
 
 //------------------------------------------------------------------------------
+/*!
+    Json number value.
+*/
 typedef double jnum_t;
+
+/*!
+    Json boolean.
+*/
 typedef uint8_t jbool_t;
-typedef uint32_t jsize_t;
 
 struct jstr_t;
 struct _jobj_t;
@@ -364,6 +371,9 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
 /*!
     A json object struct. Do not modify or access the fields directly. They are 
     subject to change version to version.
+    
+    @field json pointer to the parent json document.
+    @field idx index of the json object data.
 */
 struct jobj_t
 {
@@ -618,6 +628,9 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
 /*!
     Json array struct. Do not modify or access the fields directly as they may
     change version to version.
+    
+    @field json pointer to the parent json document.
+    @field idx index of the json array data.
 */
 struct jarray_t
 {
@@ -799,6 +812,19 @@ void jarray_print(jarray_t array, int flags, print_func p, void* udata);
 /*!
     Internal structure used for the string hash table. Should not be accessed
     or modified directly. Could change in future revisions.
+    
+    @details 
+    Strings are stored in a simple array.
+    
+    Strings are indexed in a hashtable. The hashtable contains the string's 
+    index not the string itself.
+    
+    @field blen numer of bucket slots
+    @field bcap bucket capacity
+    @field buckets array of buckets
+    @field slen number of strings in the strs array
+    @field scap capacity of the strings array
+    @field strs array of string values
 */
 struct jmap_t
 {
@@ -1203,7 +1229,12 @@ jarray_t json_get_array( json_t* jsn, jval_t val );
 */
 struct jarray_t jobj_add_array( jobj_t obj, const char* key );
 
-
+/*!
+    stucture to store the amount of used and reserved memory.
+    
+    @field used the amount of used memory in bytes
+    @field reserved the amount of reserved memory in bytes.
+*/
 struct jmem_t
 {
     size_t used;
@@ -1211,6 +1242,15 @@ struct jmem_t
 };
 typedef struct jmem_t jmem_t;
 
+/*!
+    Stores stats to memory usage of a json doc.
+    
+    @field nums the memory used to store all numbers in the doc.
+    @field objs the memory used to store all objects in the doc.
+    @field arrays the memory used to store all arrays in the doc.
+    @field strs the memory used to store all strings in the doc.
+    @field total the total memory used in the doc.
+*/
 struct jmem_stats_t
 {
     jmem_t nums;
@@ -1221,6 +1261,13 @@ struct jmem_stats_t
 };
 typedef struct jmem_stats_t jmem_stats_t;
 
+/*!
+    Calculates the amount of memory used by the json doc. Reports both used and
+    reserved memory.
+    
+    @param jsn the json doc.
+    @return data structure reporting the amount of memory used and reserved.
+*/
 jmem_stats_t json_get_mem( json_t* jsn );
 
 #ifdef __cplusplus
