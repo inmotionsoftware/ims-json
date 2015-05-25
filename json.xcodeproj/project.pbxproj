@@ -46,7 +46,6 @@
 		E7D13DB61B0F797300BF2C77 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		E7D13DBC1B0F79EC00BF2C77 /* libjson.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libjson.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7D13DC41B0F7A4000BF2C77 /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
-		E7D13DC61B0F7A7A00BF2C77 /* citylots.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = citylots.json; sourceTree = "<group>"; };
 		E7D13DC71B0F7A7A00BF2C77 /* magic.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = magic.json; sourceTree = "<group>"; };
 		E7D13DC81B0F7A7A00BF2C77 /* medium.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = medium.json; sourceTree = "<group>"; };
 		E7D13DC91B0F7A7A00BF2C77 /* small.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = small.json; sourceTree = "<group>"; };
@@ -111,7 +110,6 @@
 		E7D13DB51B0F797300BF2C77 /* test */ = {
 			isa = PBXGroup;
 			children = (
-				E7D13DC61B0F7A7A00BF2C77 /* citylots.json */,
 				E7D13DC71B0F7A7A00BF2C77 /* magic.json */,
 				E7D13DC81B0F7A7A00BF2C77 /* medium.json */,
 				E7D13DC91B0F7A7A00BF2C77 /* small.json */,
