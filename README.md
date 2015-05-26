@@ -96,6 +96,12 @@ about 189MB in size. [Download here](https://github.com/zemirco/sf-city-lots-jso
 The second file is a compilation of Magic the Gathering data / stats. This file 
 is 42.4 MB in size. [Download here](http://mtgjson.com/json/AllSets-x.json)
 
+The comparision was run against [jannson (v2.7)](http://www.digip.org/jansson/)
+another C library, and [Gson (v2.3.1)](https://code.google.com/p/google-gson/) 
+a popular Java based parser. Gson was included purely as a baseline between 
+native code vs virtual machine code to illustrate how efficient C code can be. 
+There are likely faster Java-based parsers out there.
+
 ### Runtime performance
 library | citylots | magic   |
 --------|---------:|--------:|

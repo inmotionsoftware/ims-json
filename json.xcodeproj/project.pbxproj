@@ -43,7 +43,7 @@
 		E76886161B0F786000D1F1A2 /* json.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json.h; sourceTree = "<group>"; };
 		E76886171B0F786000D1F1A2 /* json.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
 		E77A13DB1AD5D443001068F1 /* json_test */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = json_test; sourceTree = BUILT_PRODUCTS_DIR; };
-		E7D13DB41B0F792C00BF2C77 /* jsonc */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = jsonc; sourceTree = BUILT_PRODUCTS_DIR; };
+		E7D13DB41B0F792C00BF2C77 /* ims-jsonc */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "ims-jsonc"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7D13DB61B0F797300BF2C77 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		E7D13DBC1B0F79EC00BF2C77 /* libjson.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libjson.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7D13DC41B0F7A4000BF2C77 /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
@@ -111,7 +111,7 @@
 			isa = PBXGroup;
 			children = (
 				E77A13DB1AD5D443001068F1 /* json_test */,
-				E7D13DB41B0F792C00BF2C77 /* jsonc */,
+				E7D13DB41B0F792C00BF2C77 /* ims-jsonc */,
 				E7D13DBC1B0F79EC00BF2C77 /* libjson.a */,
 			);
 			name = Products;
@@ -183,7 +183,7 @@
 			);
 			name = jsonc;
 			productName = MMapJson;
-			productReference = E7D13DB41B0F792C00BF2C77 /* jsonc */;
+			productReference = E7D13DB41B0F792C00BF2C77 /* ims-jsonc */;
 			productType = "com.apple.product-type.tool";
 		};
 		E7D13DBB1B0F79EC00BF2C77 /* json */ = {
