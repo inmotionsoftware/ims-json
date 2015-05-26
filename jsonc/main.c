@@ -56,7 +56,7 @@ void print_version()
 //------------------------------------------------------------------------------
 void exit_help(int rt)
 {
-    log_err("USAGE: jsonc [OPTIONS] jsonfile");
+    log_err("USAGE: ims-jsonc [OPTIONS] jsonfile");
     print_version();
     log_err("--version              print version.");
     log_err("--help,h               print help.");
