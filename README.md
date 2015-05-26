@@ -8,32 +8,32 @@ same mentality. I decided to do a little experiment born somewhat out of a need
 of a high performance json parser and partly out of pure curisoity. What I 
 discovered (as no big surprise) is that applying some data-driven concepts to a 
 json parsing library has some huge benefits in terms of both parsing performance
-and  memory overheads. From there the ims-json library was born.
+and  memory overheads. From this the ims-json library was born.
 
-What I have developed is I believe one of the fastest (if not the fastest) 
-portable json parser out there. I have spent some time comparing it against many 
+What I have developed is, I believe, one of the fastest (if not the fastest),
+portable json parsers out there. I spent some time comparing it against many 
 other popular libraries out there and found that ims-json is something around 5x
-faster than some leading C libraries, and 20x faster than most other high level
-language parsers (such as Gson for Java) while using 1/10th the memory. You can
+faster than some leading C libraries, and 20x faster than most other high level 
+language parsers (such as Gson for Java) while using 1/10th the memory. You can 
 see some of the results for yourself below.
 
 --------------------------------------------------------------------------------
 ## Some high level features of the project:
 
-- Portable C based library.
+- Portable C code.
 - Easy and intuitive to use.
 - First class, modern, STL inspired C++11 interface that would seem natural to a C++ developer.
-- Fast, very fast.
+- Fast. Very fast.
 - Memory efficient, low overall memory usage and low allocation counts.
-- UTF-8 and Unicode support.
+- Support for UTF-8 and Unicode escape sequences.
 - Command line utility for validating and formatting json. Error output designed for IDE integration.
 
 --------------------------------------------------------------------------------
 ## Design
 
 The basic gist of the design is that we take a different approach from the 
-typical using C unions to mash all json types together into a single structure 
-(array-of-structures approach).
+typical implementation which might use C unions to mash all json types together
+into a single structure (array-of-structures approach).
 
 ```c
 // typical json implementation
@@ -51,8 +51,8 @@ struct jval_t
 ```
 
 Instead we take a structure-of-arrays approach. What this means is that we treat
-each type of json value as a separate array where other elements of the same 
-type are stored together. 
+each type of json value as a single separate array where all elements of the 
+same type are stored together.
 
 ```c
 // ims-json approach
@@ -65,10 +65,11 @@ struct json_t
 }
 ```
 
-This has the benefit that we reduce memory because each element takes up only as
-much space as needed, no more waste just so that we can mash values together. We 
-also benefit in that allocations can amortized as each array can allocate chunks
-of values instead individual values as is typical.
+This has many benefits. We reduce memory consumption because each element takes
+only as much space as it needs. No wasted space is taken by having all elements
+mashed into a single union. Another benefit is that allocations are amortized as
+we grow each array by over allocating. This is much faster than allocating each
+element individually.
 
 --------------------------------------------------------------------------------
 ## String handling
@@ -77,9 +78,10 @@ Some other improvements worth mentioning are that all string and key values are
 internalized. This means that we do not store duplicate string values. If a 
 string or key shows up more than once within a document (which is very typical 
 of json) we store it once and then share a reference to it for all subsequent 
-duplicate strings. There is some overhead with this as we used a hashtable to
-store all strings, but this is typical of most json libraries and 
-counterintuitively actually improves performance as it reduces allocations.
+duplicate strings. There is some overhead with this as we use a hashtable to
+store the strings, but this is typical of most json libraries and 
+counterintuitively actually improves performance as it reduces the overall 
+allocation count.
 
 --------------------------------------------------------------------------------
 ## Performance Comparisions
