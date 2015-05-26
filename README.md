@@ -1,29 +1,36 @@
-# Yet another json library? 
+# ims-json
+--------------------------------------------------------------------------------
+Why another json library?
 
-I have been exploring data-driven design approaches to game engine design for 
-some time now, I had not really seen a json library using that same mentality. 
-I decided to do a little experiment born somewhat out of a need of a high 
-performance json parser and partly out of pure curisoity. What I discovered 
-(as no big surprise) is that applying some data-driven concepts to a json 
-parsing library has some huge benefits in terms of both parsing performance and 
-memory overheads. From there the ims-json library was born.
+I have been exploring data-driven approaches to game engine design for some time
+now with some great results. I had not really seen a json library using that 
+same mentality. I decided to do a little experiment born somewhat out of a need 
+of a high performance json parser and partly out of pure curisoity. What I 
+discovered (as no big surprise) is that applying some data-driven concepts to a 
+json parsing library has some huge benefits in terms of both parsing performance
+and  memory overheads. From there the ims-json library was born.
 
 What I have developed is I believe one of the fastest (if not the fastest) 
-portable json parser out there. I have spend some time comparing it against many 
+portable json parser out there. I have spent some time comparing it against many 
 other popular libraries out there and found that ims-json is something around 5x
 faster than some leading C libraries, and 20x faster than most other high level
-language parsers for Java / C# while using 1/10th the memory.
+language parsers (such as Gson for Java) while using 1/10th the memory. You can
+see some of the results for yourself below.
 
+--------------------------------------------------------------------------------
 ## Some high level features of the project:
 
 - Portable C based library.
 - Easy and intuitive to use.
-- Out of the box modern STL inspired C++11 interface that would seem natural to a C++ developer.
-- Fast
+- First class, modern, STL inspired C++11 interface that would seem natural to a C++ developer.
+- Fast, very fast.
 - Memory efficient, low overall memory usage and low allocation counts.
+- UTF-8 and Unicode support.
+- Command line utility for validating and formatting json. Error output designed for IDE integration.
 
-
+--------------------------------------------------------------------------------
 ## Design
+
 The basic gist of the design is that we take a different approach from the 
 typical using C unions to mash all json types together into a single structure 
 (array-of-structures approach).
@@ -63,6 +70,7 @@ much space as needed, no more waste just so that we can mash values together. We
 also benefit in that allocations can amortized as each array can allocate chunks
 of values instead individual values as is typical.
 
+--------------------------------------------------------------------------------
 ## String handling
 
 Some other improvements worth mentioning are that all string and key values are
@@ -73,9 +81,45 @@ duplicate strings. There is some overhead with this as we used a hashtable to
 store all strings, but this is typical of most json libraries and 
 counterintuitively actually improves performance as it reduces allocations.
 
+--------------------------------------------------------------------------------
+## Performance Comparisions
+All tests where run on a Late 2013 MacBook Pro, 2.4Ghz Core i5 with 8GB of RAM 
+running OSX 10.10.3.
+
+Two test json files were used. 
+
+The first is spatial data layer for the City and County of San Francisco and is 
+about 189MB in size. [Download here](https://github.com/zemirco/sf-city-lots-json/blob/master/citylots.json)
+
+The second file is a compilation of Magic the Gathering data / stats. This file 
+is 42.4 MB in size. [Download here](http://mtgjson.com/json/AllSets-x.json)
+
+### Runtime performance
+library | citylots | magic   |
+--------|---------:|--------:|
+ims-json| 1.943 s  | 0.864 s |
+jansson | 10.040 s | 2.881 s |
+gson    | 34.115 s | 3.380 s |
+
+
+### Memory Usage
+library | citylots | magic    |
+--------|---------:|---------:|
+ims-json| 96.14 MB | 22.03 MB |
+jansson | 993.12 MB| 140.39 MB|
+gson    | 1.97 GB  | 304.38 MB|
+
+--------------------------------------------------------------------------------
+## Bash Example
+
+```bash
+ims-jsonc --out /path/to/another/file.json --compact /path/to/file.json
+```
+
+--------------------------------------------------------------------------------
 ## C Examples
-     
-###Parsing a json doc from a file path
+
+####Parsing a json doc from a file path
 
 ```c
 const char* path = "path/to/json";
@@ -92,7 +136,7 @@ if (json_load_path(&jsn, path, &err) != 0)
 json_destroy(&jsn);
 ```
 
-###Parsing a json doc from a c-string
+####Parsing a json doc from a c-string
 ```c
 jerr_t err;
 json_t jsn;
@@ -105,7 +149,7 @@ if (json_load_str(&jsn, "{\"key\": 1}", &err) != 0)
 json_destroy(&jsn);
 ```
 
-###Parsing a json doc from a buffer
+####Parsing a json doc from a buffer
 ```c
 char buf[] = "{\"key\": 1}";
 size_t buflen = sizeof(buf);
@@ -121,7 +165,7 @@ if (json_load_buf(&jsn, buf, buflen, &err) != 0)
 json_destroy(&jsn);
 ```
 
-###Constructing a json file dynamically
+####Constructing a json file dynamically
 ```c
 json_t jsn;
 json_init(&jsn);
@@ -157,7 +201,7 @@ jobj_t root = json_root(&jsn);
 json_destroy(&jsn);
 ```
 
-###Write a json file to a file
+####Write a json doc to a file
 ```c
 json_t jsn;
 // load json...
@@ -169,7 +213,7 @@ if (json_print_file(&jsn, flags, stdout) != 0)
 json_destroy(&jsn);
 ```
 
-###Create a json string
+####Create a json string
 ```c
 json_t jsn;
 // load json...
@@ -186,9 +230,10 @@ free(str); // must free string when done
 json_destroy(&jsn);
 ```
 
+--------------------------------------------------------------------------------
 ## C++ Examples
 
-### Create a json doc
+#### Create a json doc
 ```cpp
 ims::json jsn;
 auto root = jsn.root();
@@ -198,7 +243,15 @@ auto root = jsn.root();
     root["nil"] = nullptr;
     root["num"] = 3.14;
     root["string"] = "string";
-    root["child"].add_obj("key", 5, "key2", true);
+    
+    // C++11 vargs template for creating an object
+    root["child"].add_obj
+    (
+        "key", 5, 
+        "key2", true
+    );
+    
+    // nicer syntax, but less efficient as it generates a copy
     root["array"] = val::array
     {
         true,
@@ -215,7 +268,7 @@ auto root = jsn.root();
 }
 ```
 
-### Find a key
+#### Find a key
 ```cpp
 ims::json jsn;
 //...
@@ -228,21 +281,21 @@ if (it != root.end())
 }
 ```
 
-### Write json doc to output stream
+#### Write json doc to output stream
 ```cpp
 ims::json jsn;
 //...
 std::cout << jsn;
 ```
 
-### Convert json to string
+#### Convert json to string
 ```cpp
 ims::json jsn;
 //...
 const std::string& str = jsn.str();
 ```
 
-### Iterating json objects
+#### Iterating json objects
 ```cpp
 
 ims::json jsn;
