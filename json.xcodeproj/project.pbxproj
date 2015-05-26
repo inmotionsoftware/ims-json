@@ -38,6 +38,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E7598A851B14CD7900700FF0 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		E76886151B0F786000D1F1A2 /* json.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = json.c; sourceTree = "<group>"; };
 		E76886161B0F786000D1F1A2 /* json.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = json.h; sourceTree = "<group>"; };
 		E76886171B0F786000D1F1A2 /* json.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
@@ -77,6 +78,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		E7598A861B14CD7D00700FF0 /* other */ = {
+			isa = PBXGroup;
+			children = (
+				E7598A851B14CD7900700FF0 /* README.md */,
+			);
+			name = other;
+			sourceTree = "<group>";
+		};
 		E76886131B0F786000D1F1A2 /* src */ = {
 			isa = PBXGroup;
 			children = (
@@ -90,6 +99,7 @@
 		E77A13D21AD5D443001068F1 = {
 			isa = PBXGroup;
 			children = (
+				E7598A861B14CD7D00700FF0 /* other */,
 				E76886131B0F786000D1F1A2 /* src */,
 				E7D13DB51B0F797300BF2C77 /* test */,
 				E7D13DC31B0F7A4000BF2C77 /* jsonc */,

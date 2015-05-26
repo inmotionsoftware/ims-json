@@ -51,6 +51,8 @@ namespace ims
         friend class const_val;
     public:
 
+        typedef std::pair<std::string, class const_val> key_val;
+
         /**
             object iterator. Iterates each key-value pair in the parent object.
         */
@@ -66,7 +68,7 @@ namespace ims
             bool operator== ( const iterator& it ) const { return it.m_idx == m_idx && m_obj == it.m_obj; }
             iterator operator++ (int) { return iterator(m_obj, m_idx++); }
             iterator& operator++ () { m_idx++; return *this; }
-            class std::pair<std::string, class const_val> operator*() const;
+            key_val operator*() const;
 
         protected:
             const obj& m_obj;
@@ -937,7 +939,7 @@ namespace ims
     }
 
     //--------------------------------------------------------------------------
-    class std::pair<std::string, class const_val> obj::iterator::operator*() const
+    obj::key_val obj::iterator::operator*() const
     {
         jval_t val;
         const char* key = jobj_get(m_obj, m_idx, &val);
