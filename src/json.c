@@ -33,6 +33,7 @@
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <string.h>
 
 #pragma mark - macros
 
@@ -41,11 +42,7 @@
 
 #pragma mark - constants
 
-#if __STRICT_ANSI__
-    #define JINLINE static __inline__
-#else
-    #define JINLINE static inline
-#endif
+#define JINLINE static __inline
 
 #define BUF_SIZE ((size_t)6)
 #define MAX_VAL_IDX 268435456 // 2^28
@@ -497,7 +494,7 @@ JINLINE jhash_t murmur3_32(const char *key, size_t len, jhash_t seed)
 	const size_t nblocks = len / sizeof(jhash_t);
 	const jhash_t *blocks = (const jhash_t *) key;
 
-	for (int i = 0; i < nblocks; i++)
+	for (size_t i = 0; i < nblocks; i++)
     {
 		jhash_t k = blocks[i];
 		k *= c1;

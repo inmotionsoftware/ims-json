@@ -3,3 +3,6 @@ MMapJson.xcodeproj/project.xcworkspace/xcuserdata
 json.xcodeproj/xcuserdata
 json.xcodeproj/project.xcworkspace/xcuserdata
 json.xcodeproj/project.xcworkspace/xcshareddata
+Debug/
+*.sdf
+*.opensdf
