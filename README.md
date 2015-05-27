@@ -1,5 +1,5 @@
 # ims-json
---------------------------------------------------------------------------------
+
 Why another json library?
 
 I have been exploring data-driven approaches to game engine design for some time

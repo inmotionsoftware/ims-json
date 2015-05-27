@@ -261,7 +261,7 @@ namespace ims
         iterator find( const std::string& key )
         {
             size_t idx = jobj_findl_idx(m_obj, key.c_str(), key.length());
-            if (idx == SIZE_T_MAX)
+            if (idx == SIZE_MAX)
             {
                 return end();
             }

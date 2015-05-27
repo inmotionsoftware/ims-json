@@ -485,7 +485,7 @@ jobj_t jobj_add_obj( jobj_t obj, const char* key );
     @param key the key to search.
     @param klen the length of the key.
     
-    @return the index of the matching key-value, or SIZE_T_MAX if not found.
+    @return the index of the matching key-value, or SIZE_MAX if not found.
 */
 size_t jobj_findl_next_idx( jobj_t obj, size_t idx, const char* key, size_t klen );
 
@@ -496,7 +496,7 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t idx, const char* key, size_t klen
     @param OBJ the object to search.
     @param KEY the key to search for.
     @param KLEN the length of the key string.
-    @return the index of the matching key-value or SIZE_T_MAX if not found.
+    @return the index of the matching key-value or SIZE_MAX if not found.
 */
 #define jobj_findl_idx(OBJ, KEY, KLEN) jobj_findl_next_idx(OBJ, 0, KEY, KLEN)
 

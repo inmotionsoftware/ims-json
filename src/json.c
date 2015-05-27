@@ -32,6 +32,7 @@
 #include <assert.h>
 #include <setjmp.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 #pragma mark - macros
 
@@ -754,7 +755,7 @@ JINLINE jstr_t* jmap_get_str(jmap_t* map, size_t idx)
 JINLINE size_t jmap_find_hash(jmap_t* map, jhash_t hash, const char* cstr, size_t slen)
 {
     assert(cstr);
-    if (map->blen == 0) return SIZE_T_MAX;
+    if (map->blen == 0) return SIZE_MAX;
 
     assert(map->bcap > 0);
     jmapbucket_t* bucket = &map->buckets[hash % map->bcap];
@@ -777,7 +778,7 @@ JINLINE size_t jmap_find_hash(jmap_t* map, jhash_t hash, const char* cstr, size_
         }
     }
 
-    return SIZE_T_MAX;
+    return SIZE_MAX;
 }
 
 //------------------------------------------------------------------------------
@@ -792,7 +793,7 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
     jhash_t hash = jstr_hash(cstr, slen);
 
     size_t idx = jmap_find_hash(map, hash, cstr, slen);
-    if (idx != SIZE_T_MAX)
+    if (idx != SIZE_MAX)
         return idx;
 
     jmap_rehash(map, 0);
@@ -1009,7 +1010,7 @@ JINLINE size_t json_add_strl( json_t* jsn, const char* str, size_t slen )
     assert(jsn);
     assert(str);
     size_t idx = jmap_add_str(&jsn->strmap, str, slen);
-    assert (idx != SIZE_T_MAX);
+    assert (idx != SIZE_MAX);
     return idx;
 }
 //------------------------------------------------------------------------------
@@ -1300,7 +1301,7 @@ JINLINE size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
             return i;
         }
     }
-    return SIZE_T_MAX;
+    return SIZE_MAX;
 }
 
 //------------------------------------------------------------------------------
@@ -1316,7 +1317,7 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t kle
 
     // check the hashtable for our string, if it's not there it's no where!
     size_t idx = jmap_find_str(&jsn->strmap, key, klen);
-    if (idx == SIZE_T_MAX)
+    if (idx == SIZE_MAX)
     {
         return idx;
     }
@@ -1339,7 +1340,7 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t kle
         }
     }
 
-    return SIZE_T_MAX;
+    return SIZE_MAX;
 }
 
 //------------------------------------------------------------------------------
