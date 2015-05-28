@@ -34,6 +34,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #pragma mark - macros
 
