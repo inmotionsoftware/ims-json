@@ -557,10 +557,10 @@ namespace ims
         std::string str( int flags = JPRINT_PRETTY ) const
         {
             std::string str;
-            json_print(m_jsn, flags, [](void* ctx, const char* cstr)
+            json_print(m_jsn, flags, [](void* ctx, const void* ptr, size_t n) -> size_t
             {
-                std::string& str = *(std::string*)ctx;
-                str += cstr;
+                ((std::string*)ctx)->append((const char*)ptr, n);
+                return n;
             }, &str);
             return std::move(str);
         }
@@ -578,9 +578,10 @@ namespace ims
     };
 
     //--------------------------------------------------------------------------
-    static inline void ostream_write( void* ctx, const char* str )
+    static inline size_t ostream_write( void* ctx, const void* ptr, size_t n )
     {
-        *((std::ostream*)ctx) << str;
+        ((std::ostream*)ctx)->write((const char*)ptr, n);
+        return n;
     }
 
     //--------------------------------------------------------------------------

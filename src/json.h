@@ -260,9 +260,10 @@ static const int JPRINT_NEWLINE_WIN = 0x4;
     User function for writing json output. 
     
     @param ctx an opaque user pointer
-    @param str a null terminated array of characters to write.
+    @param ptr a pointer to the data for writing
+    @param n the number of bytes to write
 */
-typedef void (*print_func)( void* ctx, const char* str);
+typedef size_t (*print_func)( void* ctx, const void* ptr, size_t n);
 
 //------------------------------------------------------------------------------
 /*!
@@ -1069,9 +1070,9 @@ int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
     @param jsn the json doc to write. Must not be null.
     @param flags optional flags for controlling output format.
     @param path the path of a local file.
-    @return the status code. Non-zero for an error.
+    @return the number of bytes written, or zero if an error occured.
 */
-int json_print_path(json_t* jsn, int flags, const char* path);
+size_t json_print_path(json_t* jsn, int flags, const char* path);
 
 /*!
     Writes the json doc to the file. The json format can be controlled by 
@@ -1095,9 +1096,9 @@ int json_print_path(json_t* jsn, int flags, const char* path);
     @param jsn the json doc to write. Must not be null.
     @param flags optional flags for controlling output format.
     @param file the output FILE.
-    @return the status code. Non-zero for an error.
+    @return the number of bytes written, or zero if an error occured.
 */
-int json_print_file(json_t* jsn, int flags, FILE* file);
+size_t json_print_file(json_t* jsn, int flags, FILE* file);
 
 /*!
     Writes the json doc to the given user function. The udata is an opaque user
@@ -1110,9 +1111,9 @@ int json_print_file(json_t* jsn, int flags, FILE* file);
     @param flags optional flags for controlling output format.
     @param p function the json data is sent to.
     @param udata opac user data forwarded to the print function
-    @return the status code. Non-zero for an error.
+    @return the number of bytes written, or zero if an error occured.
 */
-int json_print(json_t* jsn, int flags, print_func p, void* udata);
+size_t json_print(json_t* jsn, int flags, print_func p, void* udata);
 
 /*!
     Writes the json doc to an in memory string. The string is allocated using

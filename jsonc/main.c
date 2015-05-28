@@ -181,9 +181,11 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (!suppress)
+    // write to disk now (unless we are suppressing output)
+    if (!suppress && json_print_file(&jsn, outflags, outfile) == 0)
     {
-        json_print_file(&jsn, outflags, outfile);
+        log_err("could not write file!");
+        exit(EXIT_FAILURE);
     }
 
     if (verbose)

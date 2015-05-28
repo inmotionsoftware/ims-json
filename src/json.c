@@ -37,6 +37,19 @@
 
 #pragma mark - macros
 
+#if defined(__unix__)
+    #define J_POSIX 1
+#else
+    #if (defined (__APPLE__) && defined (__MACH__))
+        #define J_POSIX 1
+    #endif
+#endif
+
+#if J_POSIX
+    #include <fcntl.h>
+    #include <unistd.h>
+#endif
+
 #define json_do_err(CTX) longjmp(ctx->jerr_jmp, EXIT_FAILURE)
 //#define json_do_err(CTX) abort()
 
@@ -75,8 +88,14 @@ struct jprint_t
     print_func print;
     void* udata;
     char tab[10];
+    size_t ntab;
     char newline[4];
+    size_t nnewline;
+    char space[2];
+    size_t nspace;
+    size_t nbytes;
     jbool_t esc_uni;
+    jmp_buf jerr_jmp;
 };
 typedef struct jprint_t jprint_t;
 
@@ -210,12 +229,6 @@ JINLINE size_t jmins( size_t m1, size_t m2 ) { return (m1<m2) ? m1 : m2; }
 
 //------------------------------------------------------------------------------
 JINLINE size_t jmaxs( size_t m1, size_t m2 ) { return (m1>m2) ? m1 : m2; }
-
-//------------------------------------------------------------------------------
-#if ( defined(__APPLE__) && defined(__MACH__) )
-    #include <fcntl.h>
-    #include <unistd.h>
-#endif
 
 //------------------------------------------------------------------------------
 JINLINE void FILE_get_path(FILE* file, char* buf, size_t blen )
@@ -424,16 +437,6 @@ JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
     return str;
 }
 
-
-//------------------------------------------------------------------------------
-JINLINE void print_tabs( jprint_t* ctx, size_t cnt)
-{
-    while (cnt--)
-    {
-        ctx->print(ctx->udata, ctx->tab);
-    }
-}
-
 //------------------------------------------------------------------------------
 JINLINE size_t grow( size_t min, size_t cur )
 {
@@ -449,11 +452,17 @@ JINLINE size_t grow( size_t min, size_t cur )
 
 #pragma mark - jprint_t
 //------------------------------------------------------------------------------
-JINLINE void jprint_init( jprint_t* p, const char* tabs, const char* newline )
+JINLINE void jprint_init( jprint_t* p, const char* tabs, const char* newline, const char* space )
 {
     assert(p);
-    strcpy(p->newline, newline);
-    strcpy(p->tab, tabs);
+    strncpy(p->newline, newline, sizeof(p->newline)-1);
+    strncpy(p->tab, tabs, sizeof(p->tab)-1);
+    strncpy(p->space, space, sizeof(p->space)-1);
+
+    p->nspace = strlen(space);
+    p->nnewline = strlen(newline);
+    p->ntab = strlen(tabs);
+    p->nbytes = 0;
     p->udata = NULL;
     p->print = NULL;
     p->esc_uni = JTRUE;
@@ -462,19 +471,86 @@ JINLINE void jprint_init( jprint_t* p, const char* tabs, const char* newline )
 //------------------------------------------------------------------------------
 JINLINE void jprint_init_flags( jprint_t* ctx, int flags, print_func func, void* udata )
 {
+    static const char TAB[]         = "    ";
+    static const char NEWLINE[]     = "\n";
+    static const char NEWLINE_WIN[] = "\r\n";
+    static const char SPACE[]       = " ";
+
     if (flags & JPRINT_PRETTY)
     {
-
-        jprint_init(ctx, "    ", (flags&JPRINT_NEWLINE_WIN) ? "\r\n" : "\n");
+        jprint_init(ctx, TAB, (flags&JPRINT_NEWLINE_WIN) ? NEWLINE_WIN : NEWLINE, SPACE);
     }
     else
     {
-        jprint_init(ctx, "", "");
+        jprint_init(ctx, "", "", "");
     }
 
     ctx->esc_uni = flags & JPRINT_ESC_UNI;
     ctx->udata = udata;
     ctx->print = func;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_write( jprint_t* ctx, const void* ptr, size_t n )
+{
+    if (n == 0) return;
+    assert(ctx);
+    assert(ctx->print);
+    assert(ptr);
+    size_t m = ctx->print(ctx->udata, ptr, n);
+    if (m != n) json_do_err(ctx);
+    ctx->nbytes += m;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_fmt(jprint_t* ctx, const char* fmt, ...)
+{
+    char buf[255];
+    size_t blen = sizeof(buf);
+
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, blen, fmt, args);
+    va_end(args);
+
+    buf[blen-1] = '\0';
+    assert(len <= blen);
+    jprint_write(ctx, buf, len);
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_tab(jprint_t* ctx)
+{
+    jprint_write(ctx, ctx->tab, ctx->ntab);
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_space(jprint_t* ctx)
+{
+    jprint_write(ctx, ctx->space, ctx->nspace);
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_char(jprint_t* ctx, char ch)
+{
+    jprint_write(ctx, &ch, 1);
+}
+
+#define jprint_const(CTX,STR) jprint_write(CTX, "" STR, sizeof(STR)-1)
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_tabs(jprint_t* ctx, size_t ntabs )
+{
+    while (ntabs--)
+    {
+        jprint_tab(ctx);
+    }
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jprint_newline(jprint_t* ctx)
+{
+    jprint_write(ctx, ctx->newline, ctx->nnewline);
 }
 
 #pragma mark - jstr_t
@@ -806,34 +882,33 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 //------------------------------------------------------------------------------
 JINLINE void json_print_str( jprint_t* ctx, const char* str )
 {
-    ctx->print(ctx->udata, "\"");
-
+    jprint_char(ctx, '\"');
     for ( int ch = *str&0xFF; ch; ch = *++str&0xFF )
     {
         switch (ch)
         {
             case '\\':
-                ctx->print(ctx->udata, "\\\\");
+                jprint_const(ctx, "\\\\");
                 break;
 
             case '"':
-                ctx->print(ctx->udata, "\\\"");
+                jprint_const(ctx, "\\\"");
                 break;
 
             case '\r':
-                ctx->print(ctx->udata, "\\r");
+                jprint_const(ctx, "\\r");
                 break;
 
             case '\n':
-                ctx->print(ctx->udata, "\\n");
+                jprint_const(ctx, "\\n");
                 break;
 
             case '\f':
-                ctx->print(ctx->udata, "\\f");
+                jprint_const(ctx, "\\f");
                 break;
 
             case '\t':
-                ctx->print(ctx->udata, "\\t");
+                jprint_const(ctx, "\\t");
                 break;
 
             case '/':
@@ -841,8 +916,7 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
             {
                 if (!ctx->esc_uni)
                 {
-                    char buf[2] = { (char)ch, 0};
-                    ctx->print(ctx->udata, buf);
+                    jprint_char(ctx, (char)ch);
                     break;
                 }
 
@@ -850,22 +924,19 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
                 const char* next = utf8_codepoint(str, &codepoint);
                 if (next != str)
                 {
-                    char buf[11];
-                    jsnprintf(buf, sizeof(buf), "\\u%X", codepoint);
-                    ctx->print(ctx->udata, buf);
+                    jprint_fmt(ctx, "\\u%X", codepoint);
                     str = next;
                 }
                 else
                 {
-                    char buf[2] = {(char)ch, 0};
-                    ctx->print(ctx->udata, buf);
+                    jprint_char(ctx, (char)ch);
                 }
                 break;
             }
         }
     }
 
-    ctx->print(ctx->udata, "\"");
+    jprint_char(ctx, '\"');
 }
 
 //------------------------------------------------------------------------------
@@ -874,7 +945,7 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
     switch (jval_type(val))
     {
         case JTYPE_NIL:
-            ctx->print(ctx->udata, "null");
+            jprint_const(ctx, "null");
             break;
 
         case JTYPE_STR:
@@ -883,9 +954,7 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
 
         case JTYPE_NUM:
         {
-            char buf[32];
-            jsnprintf(buf, sizeof(buf), "%.0f", json_get_num(jsn, val));
-            ctx->print(ctx->udata, buf);
+            jprint_fmt(ctx, "%.0f", json_get_num(jsn, val));
             break;
         }
 
@@ -898,11 +967,11 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
             break;
 
         case JTYPE_TRUE:
-            ctx->print(ctx->udata, "true");
+            jprint_const(ctx, "true");
             break;
 
         case JTYPE_FALSE:
-            ctx->print(ctx->udata, "false");
+            jprint_const(ctx, "false");
             break;
 
         default:
@@ -1343,8 +1412,8 @@ size_t jobj_findl_next_idx( jobj_t obj, size_t next, const char* key, size_t kle
 //------------------------------------------------------------------------------
 JINLINE void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth)
 {
-    ctx->print(ctx->udata, "{");
-    ctx->print(ctx->udata, ctx->newline);
+    jprint_char(ctx, '{');
+    jprint_newline(ctx);
 
     json_t* jsn = jobj_get_json(obj);
     size_t len = jobj_len(obj);
@@ -1353,16 +1422,17 @@ JINLINE void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth)
         jval_t val;
         const char* key = jobj_get(obj, i, &val);
 
-        print_tabs(ctx, depth+1);
+        jprint_tabs(ctx, depth+1);
         json_print_str(ctx, key);
-        ctx->print(ctx->udata, ": ");
+        jprint_char(ctx, ':');
+        jprint_space(ctx);
         _jval_print(ctx, jsn, val, depth+1);
-        ctx->print(ctx->udata, (i+1 == len) ?  "" : "," );
-        ctx->print(ctx->udata, ctx->newline);
+        if (i+1 != len) jprint_char(ctx, ',');
+        jprint_newline(ctx);
     }
 
-    print_tabs(ctx, depth);
-    ctx->print(ctx->udata, "}");
+    jprint_tabs(ctx, depth);
+    jprint_char(ctx, '}');
 }
 
 #pragma mark - jarray_t
@@ -1543,20 +1613,19 @@ jobj_t jarray_add_obj( jarray_t _a )
 //------------------------------------------------------------------------------
 JINLINE void _jarray_print( jprint_t* ctx, jarray_t array, size_t depth )
 {
-    ctx->print(ctx->udata, "[");
-    ctx->print(ctx->udata, ctx->newline);
+    jprint_char(ctx, '[');
+    jprint_newline(ctx);
     json_t* jsn = jarray_get_json(array);
     size_t len = jarray_len(array);
     for ( size_t i = 0; i < len; i++ )
     {
-        print_tabs(ctx, depth+1);
+        jprint_tabs(ctx, depth+1);
         _jval_print(ctx, jsn, jarray_get(array, i), depth+1);
-
-        ctx->print(ctx->udata, (i+1 == len) ?  "" : "," );
-        ctx->print(ctx->udata, ctx->newline);
+        if (i+1 != len) jprint_char(ctx, ',');
+        jprint_newline(ctx);
     }
-    print_tabs(ctx, depth);
-    ctx->print(ctx->udata, "]");
+    jprint_tabs(ctx, depth);
+    jprint_char(ctx, ']');
 }
 
 #pragma mark - jbuf_t
@@ -1598,6 +1667,16 @@ JINLINE void jbuf_reserve( jbuf_t* buf, size_t cap )
     assert (buf->ptr);
 }
 
+
+//------------------------------------------------------------------------------
+JINLINE size_t jbuf_write( jbuf_t* buf, const void* ptr, size_t n )
+{
+    jbuf_reserve(buf, n);
+    memcpy(buf->ptr, ptr, n);
+    buf->len += n;
+    return n;
+}
+
 //------------------------------------------------------------------------------
 JINLINE void jbuf_add( jbuf_t* buf, char ch )
 {
@@ -1637,19 +1716,28 @@ json_t* json_init( json_t* jsn )
 }
 
 //------------------------------------------------------------------------------
-JINLINE void _json_write_file(void* file, const char* str)
+JINLINE size_t _json_write_file(void* file, const void* ptr, size_t n)
 {
-    fwrite(str, strlen(str), 1, (FILE*)file);
+#if J_POSIX
+    const char* cptr = (const char*)ptr;
+    for ( size_t i = 0; i < n; i++ )
+    {
+        int ch = cptr[i];
+        if (putc_unlocked(ch, (FILE*)file) == EOF)
+        {
+            return i;
+        }
+    }
+    return n;
+#else
+    return n * fwrite(ptr, n, 1, (FILE*)file);
+#endif
 }
 
 //------------------------------------------------------------------------------
-JINLINE void _json_write_buf(void* buf, const char* str)
+JINLINE size_t _json_write_buf(void* buf, const void* ptr, size_t n)
 {
-    jbuf_t* jbuf = (jbuf_t*)buf;
-    while (*str)
-    {
-        jbuf_add(jbuf, *str++);
-    }
+    return jbuf_write((jbuf_t*)buf, ptr, n);
 }
 
 //------------------------------------------------------------------------------
@@ -1681,16 +1769,21 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata)
 }
 
 //------------------------------------------------------------------------------
-int json_print(json_t* jsn, int flags, print_func p, void* udata)
+size_t json_print(json_t* jsn, int flags, print_func p, void* udata)
 {
     assert(jsn);
     jprint_t ctx;
     jprint_init_flags(&ctx, flags, p, udata);
-    _jobj_print(&ctx, json_root(jsn), 0);
 
-    // TODO
-    int rt = 0;
-    return rt;
+    if (setjmp(ctx.jerr_jmp) == 0)
+    {
+        _jobj_print(&ctx, json_root(jsn), 0);
+        return ctx.nbytes;
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1699,12 +1792,18 @@ char* json_to_str(json_t* jsn, int flags)
     assert(jsn);
 
     jbuf_t buf;
-    json_print(jsn, flags, _json_write_buf, &buf);
+    jbuf_init(&buf);
+
+    if (json_print(jsn, flags, _json_write_buf, &buf) == 0)
+    {
+        jbuf_destroy(&buf);
+        return NULL;
+    }
     return buf.ptr;
 }
 
 //------------------------------------------------------------------------------
-int json_print_path(json_t* jsn, int flags, const char* path)
+size_t json_print_path(json_t* jsn, int flags, const char* path)
 {
     assert(jsn);
     assert(path);
@@ -1712,20 +1811,30 @@ int json_print_path(json_t* jsn, int flags, const char* path)
     if (!file)
     {
         // TODO: error
-        return -1;
+        return 0;
     }
-    int rt = json_print_file(jsn, flags, file);
+    size_t rt = json_print_file(jsn, flags, file);
     fclose(file);
-
-    return rt; // TODO
+    return rt;
 }
 
 //------------------------------------------------------------------------------
-int json_print_file(json_t* jsn, int flags, FILE* f)
+size_t json_print_file(json_t* jsn, int flags, FILE* f)
 {
     assert(jsn);
     assert(f);
-    return json_print(jsn, flags, _json_write_file, f);
+
+    size_t rt;
+#if J_POSIX
+    flockfile(f);
+    rt = json_print(jsn, flags, _json_write_file, f);
+    funlockfile(f);
+#else
+    rt = json_print(jsn, flags, _json_write_file, f);
+#endif
+
+    fflush(f);
+    return rt;
 }
 
 //------------------------------------------------------------------------------
