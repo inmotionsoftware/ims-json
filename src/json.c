@@ -1867,6 +1867,7 @@ void json_destroy(json_t* jsn)
         }
     }
     jfree(jsn->objs.ptr); jsn->objs.ptr = NULL;
+    jsn->objs.len = jsn->objs.cap = 0;
 
     // cleanup arrays
     for ( size_t n = 0; n < jsn->arrays.len; n++ )
@@ -1878,6 +1879,7 @@ void json_destroy(json_t* jsn)
         }
     }
     jfree(jsn->arrays.ptr); jsn->arrays.ptr = NULL;
+    jsn->arrays.len = jsn->arrays.cap = 0;
 }
 
 //------------------------------------------------------------------------------
@@ -2582,7 +2584,7 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, const void* buf, size_t
     int status = json_parse_file(jsn, &ctx);
     if (status != 0)
     {
-        json_destroy(jsn); jsn = NULL;
+        json_clear(jsn);
     }
 
     jcontext_destroy(&ctx);

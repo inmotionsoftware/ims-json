@@ -20,7 +20,7 @@ see some of the results for yourself below.
 --------------------------------------------------------------------------------
 ## Some high level features of the project:
 
-- Portable C code.
+- Small and portable C code with no external dependencies.
 - Easy and intuitive to use.
 - First class, modern, STL inspired C++11 interface that would seem natural to a C++ developer.
 - Fast. Very fast.
@@ -85,8 +85,8 @@ allocation count.
 
 --------------------------------------------------------------------------------
 ## Performance Comparisions
-All tests where run on a Late 2013 MacBook Pro, 2.4Ghz Core i5 with 8GB of RAM 
-running OSX 10.10.3.
+All tests where run as x86_64 binaries on a Late 2013 MacBook Pro, 2.4Ghz Core 
+i5 with 8GB of RAM running OSX 10.10.3.
 
 Two test json files were used. 
 
@@ -97,31 +97,45 @@ The second file is a compilation of Magic the Gathering data / stats. This file
 is 42.4 MB in size. [Download here](http://mtgjson.com/json/AllSets-x.json)
 
 The comparision was run against [jannson (v2.7)](http://www.digip.org/jansson/)
-another C library, and [Gson (v2.3.1)](https://code.google.com/p/google-gson/) 
-a popular Java based parser. Gson was included purely as a baseline between 
-native code vs virtual machine code to illustrate how efficient C code can be. 
-There are likely faster Java-based parsers out there.
+a C library, [cson (831c0ee46e)](http://fossil.wanderinghorse.net/wikis/cson/?page=cson) 
+another C library and [Gson (v2.3.1)](https://code.google.com/p/google-gson/) a 
+popular Java based parser. Gson was included purely as a baseline between native
+code vs virtual machine code to illustrate how efficient C code can be. There 
+are likely faster Java-based parsers out there.
 
 ### Runtime performance
-library | citylots | magic   |
---------|---------:|--------:|
-ims-json| 1.943 s  | 0.864 s |
-jansson | 10.040 s | 2.881 s |
-gson    | 34.115 s | 3.380 s |
+library | citylots.json| magic.json|
+--------|-------------:|----------:|
+ims-json| 1.94 secs    | 0.86 secs |
+jansson | 10.04 secs   | 2.88 secs |
+cson    | 22.40 secs   | 4.84 secs |
+gson    | 34.12 secs   | 3.38 secs |
 
 
 ### Memory Usage
-library | citylots | magic    |
---------|---------:|---------:|
-ims-json| 96.14 MB | 22.03 MB |
-jansson | 993.12 MB| 140.39 MB|
-gson    | 1.97 GB  | 304.38 MB|
+library | citylots.json | magic.json |
+--------|--------------:|-----------:|
+ims-json| 118.27 MB     | 53.57 MB   |
+jansson | 993.12 MB     | 140.39 MB  |
+cson    | 828.15 MB     | 158.69 MB  |
+gson    | 1,970.36 MB   | 304.38 MB  |
 
 --------------------------------------------------------------------------------
-## Bash Example
+## Bash Examples
 
+####Compact a json document by removing any whitespace
 ```bash
-ims-jsonc --out /path/to/another/file.json --compact /path/to/file.json
+ims-jsonc --compact --out /path/to/out.json /path/to/file.json
+```
+
+####Validate only, suppress output
+```bash
+ims-jsonc --suppress /path/to/file.json
+```
+
+####Read from stdin and write to stdout formatting the json in human readable form
+```bash
+ims-jsonc --format --stdin < /path/to/file.json
 ```
 
 --------------------------------------------------------------------------------
@@ -323,3 +337,23 @@ std::for_each(root.begin(), root.end(), []( const obj::key_val& pair )
     // do stuff...
 });
 ```
+
+#License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

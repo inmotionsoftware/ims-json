@@ -127,6 +127,83 @@ static void get_fullpath( const char* path, char* buf, size_t blen )
 }
 
 //------------------------------------------------------------------------------
+static void test_invalid_json()
+{
+    LOG_FUNC();
+
+    static const char* docs[] =
+    {
+        STRINGIFY
+        ({
+            "extra": "comma",
+        }),
+
+        STRINGIFY
+        ({
+            "missing": "comma"
+            "oops": true
+        }),
+
+        STRINGIFY
+        ({
+            "not-null": nil
+        }),
+
+        STRINGIFY
+        ({
+            "version": 1.0.25
+        }),
+
+        STRINGIFY
+        ({
+            "number": 1e.05
+        }),
+
+        STRINGIFY
+        ({
+            "key":
+        }),
+
+        STRINGIFY
+        ({
+            "array": [1,2,3}
+        }),
+
+        STRINGIFY
+        ({
+            true : "false"
+        }),
+
+        STRINGIFY
+        ({
+            "utf8" : "\uXYZ"
+        }),
+
+        STRINGIFY
+        ({
+            "utf8" : "\U1234"
+        }),
+
+
+        "",
+    };
+
+    static const size_t ndocs = sizeof(docs)/sizeof(docs[0]);
+
+    for ( size_t i = 0; i < ndocs; i++ )
+    {
+        const char* doc = docs[i];
+        json_t jsn;
+        json_init(&jsn);
+
+        jerr_t err;
+        int rt = json_load_buf(&jsn, doc, strlen(doc), &err);
+        assert(rt != 0); // must error out!!!
+        json_destroy(&jsn);
+    }
+}
+
+//------------------------------------------------------------------------------
 static void test_reload()
 {
     LOG_FUNC();
@@ -316,6 +393,7 @@ test_func TESTS[] =
     test_construction,
     test_construction_cpp,
     test_reload,
+    test_invalid_json
 };
 static const size_t TEST_LEN = sizeof(TESTS)/sizeof(TESTS[0]);
 
