@@ -974,6 +974,22 @@ typedef struct json_t json_t;
 json_t* json_init( json_t* jsn );
 
 /*!
+    Clears out the contents of the json doc, removing all keys and values. The 
+    end result will be an empty json document.
+    
+    @code
+    json_t* jsn;
+    //...
+    json_clear(jsn);
+    size_t len = jobj_len(json_root(jsn));
+    assert( len == 0 ); // no keys
+    @endcode
+    
+    @param jsn the json doc to clear.
+*/
+void json_clear( json_t* jsn );
+
+/*!
     Loads a json doc from the local filesystem at the given path. 
     
     Example:
@@ -1034,7 +1050,7 @@ int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
     @param err pointer to store error info on failure.
     @return the status code. Non-zero for an error.
 */
-int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err);
+int json_load_buf(json_t* jsn, const void* buf, size_t blen, jerr_t* err);
 
 /*!
     @function json_load_str

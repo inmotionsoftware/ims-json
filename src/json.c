@@ -42,7 +42,7 @@
 #if (!defined(_WIN32) && (defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))))
     #include <unistd.h>
     #include <fcntl.h>
-    #if (_POSIX_VERSION > 199506L)
+    #if (_POSIX_VERSION >= 199506L)
         #define J_USE_POSIX 1
     #endif
 #endif
@@ -1706,10 +1706,18 @@ json_t* json_init( json_t* jsn )
     jsn->objs.len = 0;
     jsn->objs.ptr = NULL;
 
+    // add the root object
     size_t idx = json_add_obj(jsn);
     assert(idx == 0);
 
     return jsn;
+}
+
+//------------------------------------------------------------------------------
+void json_clear( json_t* jsn )
+{
+    json_destroy(jsn);
+    json_init(jsn);
 }
 
 //------------------------------------------------------------------------------
@@ -1897,11 +1905,11 @@ JINLINE void jcontext_init(jcontext_t* ctx)
 }
 
 //------------------------------------------------------------------------------
-JINLINE void jcontext_init_buf(jcontext_t* ctx, void* buf, size_t len)
+JINLINE void jcontext_init_buf(jcontext_t* ctx, const void* buf, size_t len)
 {
     assert(buf);
     jcontext_init(ctx);
-    ctx->beg = (char*)buf;
+    ctx->beg = (const char*)buf;
     ctx->end = ctx->beg + len;
 }
 
@@ -2289,7 +2297,7 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
     json_assert(prev == '[', "Expected an array, found: '%c'", prev);
     json_t* jsn = array.json;
 
-    size_t count = 0;
+    size_t count = jarray_len(array);
     while ( JTRUE )
     {
         size_t len = jarray_len(array);
@@ -2330,7 +2338,7 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
     json_assert(prev == '{', "Expected an object, found: '%c'", prev);
     json_t* jsn = jobj_get_json(obj);
 
-    size_t count = 0;
+    size_t count = jobj_len(obj);
     while ( JTRUE )
     {
         size_t len = jobj_len(obj);
@@ -2476,6 +2484,12 @@ int json_parse_file( json_t* jsn, jcontext_t* ctx )
     assert(jsn);
     assert(ctx);
 
+    // clear out the json doc before loading again
+    if (jobj_len(json_root(jsn)) > 0)
+    {
+        json_clear(jsn);
+    }
+
     if (setjmp(ctx->jerr_jmp) == 0)
     {
         int ch = jcontext_peek(ctx);
@@ -2524,7 +2538,7 @@ JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* er
 }
 
 //------------------------------------------------------------------------------
-JINLINE int _json_load_buf(json_t* jsn, const char* src, void* buf, size_t blen, jerr_t* err)
+JINLINE int _json_load_buf(json_t* jsn, const char* src, const void* buf, size_t blen, jerr_t* err)
 {
     assert(jsn);
     assert(buf);
@@ -2562,7 +2576,7 @@ int json_load_file(json_t* jsn, FILE* file, jerr_t* err)
 }
 
 //------------------------------------------------------------------------------
-int json_load_buf(json_t* jsn, void* buf, size_t blen, jerr_t* err)
+int json_load_buf(json_t* jsn, const void* buf, size_t blen, jerr_t* err)
 {
     char src[JMAX_SRC_STR];
     jsnprintf(src, sizeof(src), "%p", buf);

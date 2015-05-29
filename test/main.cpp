@@ -49,10 +49,13 @@ static inline void log_debug( const char* fmt, ...)
     printf("\n");
 }
 
-//const char* FILE_PATH = "test.json";
+const char* FILE_PATH = "test.json";
 //const char* FILE_PATH = "citylots.json";
-const char* FILE_PATH = "magic.json";
+//const char* FILE_PATH = "magic.json";
 //const char* FILE_PATH = "medium.json";
+
+#define STRINGIFY(...) #__VA_ARGS__
+#define LOG_FUNC() log_debug("starting test: '%s'", __func__)
 
 //------------------------------------------------------------------------------
 template < typename F >
@@ -111,22 +114,56 @@ int json_load_mmap(json_t* jsn, const char* path, jerr_t* err)
 }
 
 //------------------------------------------------------------------------------
-static void test_read()
+static void get_fullpath( const char* path, char* buf, size_t blen )
 {
-    log_debug("starting test: '%s'", __func__);
-
-    json_t* jsn = json_new();
-    jerr_t err;
-
     // get the current directory
     char dbuf[255];
     strncpy(dbuf, __FILE__, sizeof(dbuf));
     char* dir = dirname(dbuf);
 
     // get the full path of our json file
-    char buf[255];
-    snprintf(buf, sizeof(buf), "%s/%s", dir, FILE_PATH);
+    snprintf(buf, sizeof(buf), "%s/%s", dir, path);
     buf[sizeof(buf)-1] = '\0';
+}
+
+//------------------------------------------------------------------------------
+static void test_reload()
+{
+    LOG_FUNC();
+
+    static const char KEY[] = "the-thing-that-should-not-be";
+
+    json_t* jsn = json_new();
+    jobj_add_str(json_root(jsn), KEY, "cthulu");
+
+    const char* json_doc = STRINGIFY
+    ({
+        "string":"str",
+        "int": 1
+    });
+
+    jerr_t err;
+    if (json_load_str(jsn, json_doc, &err) != 0)
+    {
+        jerr_fprint(stderr, &err);
+        exit(EXIT_FAILURE);
+    }
+
+    assert(!jobj_find_str(json_root(jsn), KEY));
+
+    json_free(jsn); jsn = NULL;
+}
+
+//------------------------------------------------------------------------------
+static void test_read()
+{
+    LOG_FUNC();
+
+    json_t* jsn = json_new();
+    jerr_t err;
+
+    char buf[255];
+    get_fullpath(FILE_PATH, buf, sizeof(buf));
 
     if (json_load_path(jsn, buf, &err) != 0)
     {
@@ -149,7 +186,7 @@ static void test_read()
 //------------------------------------------------------------------------------
 static void test_construction()
 {
-    log_debug("starting test: '%s'", __func__);
+    LOG_FUNC();
 
     json_t* jsn = json_new();
     jobj_t root = json_root(jsn);
@@ -239,7 +276,7 @@ static void test_construction()
 //------------------------------------------------------------------------------
 static void test_construction_cpp()
 {
-    log_debug("starting test: '%s'", __func__);
+    LOG_FUNC();
 
     ims::json jsn;
     auto root = jsn.root();
@@ -267,13 +304,6 @@ static void test_construction_cpp()
 
     auto it = root.find("string");
     assert( it != root.end() && (*it).second.is_str());
-
-//    auto it = root.find("true");
-//    assert( it != root.end() && (*it).second.is());
-
-//    auto it = root.find("string");
-//    assert( it != root.end() && (*it).second.is_str());
-
     std::cout << jsn << std::endl;
 }
 
@@ -285,6 +315,7 @@ test_func TESTS[] =
     test_read,
     test_construction,
     test_construction_cpp,
+    test_reload,
 };
 static const size_t TEST_LEN = sizeof(TESTS)/sizeof(TESTS[0]);
 
