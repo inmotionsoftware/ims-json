@@ -42,7 +42,7 @@
 #if (!defined(_WIN32) && (defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))))
     #include <unistd.h>
     #include <fcntl.h>
-    #if defined(_POSIX_VERSION)
+    #if (_POSIX_VERSION > 199506L)
         #define J_USE_POSIX 1
     #endif
 #endif
