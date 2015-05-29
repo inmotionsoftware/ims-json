@@ -38,17 +38,13 @@
 
 #pragma mark - macros
 
-#if defined(__unix__)
-    #define J_POSIX 1
-#else
-    #if (defined (__APPLE__) && defined (__MACH__))
-        #define J_POSIX 1
-    #endif
-#endif
-
-#if J_POSIX
-    #include <fcntl.h>
+// check to see if we have posix support
+#if (!defined(_WIN32) && (defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))))
     #include <unistd.h>
+    #include <fcntl.h>
+    #if defined(_POSIX_VERSION)
+        #define J_USE_POSIX 1
+    #endif
 #endif
 
 #define json_do_err(CTX) longjmp(ctx->jerr_jmp, EXIT_FAILURE)
@@ -1719,7 +1715,7 @@ json_t* json_init( json_t* jsn )
 //------------------------------------------------------------------------------
 JINLINE size_t _json_write_file(void* file, const void* ptr, size_t n)
 {
-#if J_POSIX
+#if J_USE_POSIX
     const char* cptr = (const char*)ptr;
     for ( size_t i = 0; i < n; i++ )
     {
@@ -1826,7 +1822,7 @@ size_t json_print_file(json_t* jsn, int flags, FILE* f)
     assert(f);
 
     size_t rt;
-#if J_POSIX
+#if J_USE_POSIX
     flockfile(f);
     rt = json_print(jsn, flags, _json_write_file, f);
     funlockfile(f);
