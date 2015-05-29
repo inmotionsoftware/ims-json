@@ -52,6 +52,8 @@
 
 #pragma mark - constants
 
+const char JVER[32] = "0.9.0.0";
+
 #define JINLINE static __inline
 
 #define BUF_SIZE ((size_t)6)

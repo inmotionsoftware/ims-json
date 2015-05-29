@@ -50,7 +50,7 @@ static void log_err( const char* fmt, ...)
 //------------------------------------------------------------------------------
 void print_version()
 {
-    log_err("jsonc json compiler version \"%s\"", VER_STR);
+    log_err("ims-jsonc - InMotion Software Json Compiler v%s, libimsjson v%s.", VER_STR, JVER);
 }
 
 //------------------------------------------------------------------------------
