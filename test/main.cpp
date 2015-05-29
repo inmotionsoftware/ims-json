@@ -122,8 +122,8 @@ static void get_fullpath( const char* path, char* buf, size_t blen )
     char* dir = dirname(dbuf);
 
     // get the full path of our json file
-    snprintf(buf, sizeof(buf), "%s/%s", dir, path);
-    buf[sizeof(buf)-1] = '\0';
+    snprintf(buf, blen, "%s/%s", dir, path);
+    buf[blen-1] = '\0';
 }
 
 //------------------------------------------------------------------------------

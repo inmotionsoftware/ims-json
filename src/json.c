@@ -274,11 +274,13 @@ JINLINE void _json_assert(jcontext_t* ctx, jbool_t b, const char* fmt, ...)
 {
     if (b) return;
 
+    const size_t len = sizeof(ctx->err->msg);
+
     va_list args;
     va_start(args, fmt);
-    vsnprintf(ctx->err->msg, sizeof(ctx->err->msg), fmt, args);
+    vsnprintf(ctx->err->msg, len, fmt, args);
     va_end(args);
-    ctx->err->msg[sizeof(ctx->err->msg)-1] = '\0';
+    ctx->err->msg[len-1] = '\0';
     va_end(args);
     json_do_err(ctx);
 }
@@ -2460,7 +2462,7 @@ void jerr_init( jerr_t* err )
     err->col = 0;
     err->line = 0;
     err->src[0] = '\0';
-    err->msg[0] = '0';
+    err->msg[0] = '\0';
 }
 
 //------------------------------------------------------------------------------
@@ -2479,6 +2481,17 @@ void jerr_init_src( jerr_t* err, const char* src )
 }
 
 //------------------------------------------------------------------------------
+void jerr_set_msg( jerr_t* err, const char* msg )
+{
+    assert(err);
+    assert(msg);
+
+    const size_t len = sizeof(err->msg);
+    strncpy(err->msg, msg, len);
+    err->msg[len-1] = '\0';
+}
+
+//------------------------------------------------------------------------------
 int json_parse_file( json_t* jsn, jcontext_t* ctx )
 {
     assert(jsn);
@@ -2488,6 +2501,12 @@ int json_parse_file( json_t* jsn, jcontext_t* ctx )
     if (jobj_len(json_root(jsn)) > 0)
     {
         json_clear(jsn);
+    }
+
+    if (ctx->beg == ctx->end)
+    {
+        jerr_set_msg(ctx->err, "json document is empty");
+        return EXIT_FAILURE;
     }
 
     if (setjmp(ctx->jerr_jmp) == 0)
@@ -2516,7 +2535,8 @@ JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* er
     assert(err);
     if (!file)
     {
-        strncpy(err->msg, "file descriptor is null", sizeof(err->msg));
+        jerr_init_src(err, src);
+        jerr_set_msg(err, "file descriptor is null");
         return 1;
     }
 
@@ -2592,7 +2612,8 @@ int json_load_path(json_t* jsn, const char* path, jerr_t* err)
     FILE* file = fopen(path, "r");
     if (!file)
     {
-        strncpy(err->msg, "could not read file", sizeof(err->msg));
+        jerr_init_src(err, path);
+        jerr_set_msg(err, "could not read file");
         return 1;
     }
 
