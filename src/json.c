@@ -413,14 +413,15 @@ JINLINE int utf8_bytes( int ch )
     {
         return 6;
     }
-
-    assert(JFALSE);
     return 0;
 }
 
 //------------------------------------------------------------------------------
 JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
 {
+    assert(_codepoint);
+    if (!str) return NULL;
+
     uint32_t codepoint = 0;
     switch(utf8_bytes(*str&0xFF))
     {
@@ -462,8 +463,7 @@ JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
             break;
 
         default:
-            assert(JFALSE);
-            break;
+            return NULL;
     }
 
     assert(_codepoint);
@@ -956,6 +956,8 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
 
                 uint32_t codepoint;
                 const char* next = utf8_codepoint(str, &codepoint);
+                assert(next);
+
                 if (next != str)
                 {
                     jprint_fmt(ctx, "\\u%X", codepoint);
@@ -988,7 +990,9 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
 
         case JTYPE_NUM:
         {
-            jprint_fmt(ctx, "%g", json_get_num(jsn, val));
+            jnum_t num = json_get_num(jsn, val);
+            jbool_t isint = (num == floor(num));
+            jprint_fmt(ctx, isint ? "%0.0f" : "%g", num);
             break;
         }
 
@@ -1346,6 +1350,9 @@ void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen )
 {
     assert(key);
     assert(str);
+
+    // TODO: validate the string as a valid UTF8 sequence!
+
     size_t idx = json_add_strl(jobj_get_json(obj), str, slen);
     jobj_add_kv(obj, key, JTYPE_STR, idx);
 }
@@ -1727,6 +1734,43 @@ JINLINE void jbuf_add( jbuf_t* buf, char ch )
     assert(buf);
     jbuf_reserve(buf, 1);
     buf->ptr[buf->len++] = ch;
+}
+
+//------------------------------------------------------------------------------
+JINLINE int jbuf_add_unicode(jbuf_t* str, int32_t codepoint )
+{
+    if (codepoint == 0)
+    {
+        return EXIT_FAILURE;
+    }
+    else if(codepoint < 0x80)
+    {
+        jbuf_add(str, (char)codepoint);
+    }
+    else if(codepoint < 0x800)
+    {
+        jbuf_add(str, 0xC0 + ((codepoint & 0x7C0) >> 6));
+        jbuf_add(str, 0x80 + ((codepoint & 0x03F)));
+    }
+    else if(codepoint < 0x10000)
+    {
+        jbuf_add(str, 0xE0 + ((codepoint & 0xF000) >> 12));
+        jbuf_add(str, 0x80 + ((codepoint & 0x0FC0) >> 6));
+        jbuf_add(str, 0x80 + ((codepoint & 0x003F)));
+    }
+    else if(codepoint <= 0x10FFFF)
+    {
+        jbuf_add(str, 0xF0 + ((codepoint & 0x1C0000) >> 18));
+        jbuf_add(str, 0x80 + ((codepoint & 0x03F000) >> 12));
+        jbuf_add(str, 0x80 + ((codepoint & 0x000FC0) >> 6));
+        jbuf_add(str, 0x80 + ((codepoint & 0x00003F)));
+    }
+    else
+    {
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
 }
 
 #pragma mark - json_t
@@ -2127,38 +2171,6 @@ JINLINE unsigned char char_to_hex(jcontext_t* ctx, int ch)
 }
 
 //------------------------------------------------------------------------------
-JINLINE void utf8_encode(jcontext_t* ctx, int32_t codepoint, jbuf_t* str )
-{
-    json_assert(codepoint > 0, "invalid unicode: %d", codepoint);
-    if(codepoint < 0x80)
-    {
-        jbuf_add(str, (char)codepoint);
-    }
-    else if(codepoint < 0x800)
-    {
-        jbuf_add(str, 0xC0 + ((codepoint & 0x7C0) >> 6));
-        jbuf_add(str, 0x80 + ((codepoint & 0x03F)));
-    }
-    else if(codepoint < 0x10000)
-    {
-        jbuf_add(str, 0xE0 + ((codepoint & 0xF000) >> 12));
-        jbuf_add(str, 0x80 + ((codepoint & 0x0FC0) >> 6));
-        jbuf_add(str, 0x80 + ((codepoint & 0x003F)));
-    }
-    else if(codepoint <= 0x10FFFF)
-    {
-        jbuf_add(str, 0xF0 + ((codepoint & 0x1C0000) >> 18));
-        jbuf_add(str, 0x80 + ((codepoint & 0x03F000) >> 12));
-        jbuf_add(str, 0x80 + ((codepoint & 0x000FC0) >> 6));
-        jbuf_add(str, 0x80 + ((codepoint & 0x00003F)));
-    }
-    else
-    {
-        json_assert(JFALSE, "invalid unicode: %d", codepoint);
-    }
-}
-
-//------------------------------------------------------------------------------
 JINLINE jnum_t parse_sign( jcontext_t* ctx )
 {
     int ch = jcontext_peek(ctx);
@@ -2289,28 +2301,34 @@ JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
 {
     json_assert(jcontext_peek(ctx) == 'u', "not a valid unicode sequence");
 
-    // U+XXXX
+    // UTF-8 escape sequence
+    // format is: \uXXXX
     unsigned int val = parse_unicode_hex(ctx);
-//    json_error(val > 0, is, "\\u0000 is not allowed");
 
-    // surrogate pair, \uXXXX\uXXXXX
-    if (0xD800 <= val && val <= 0xDBFF)
+    // not a surrogate pair, process it as a single sequence
+    if (val < 0xD800 || val > 0xDBFF)
     {
-        json_assert(jcontext_next(ctx) == '\\', "invalid unicode");
-        json_assert(jcontext_next(ctx) == 'u', "invalid unicode");
-
-        // read the surrogate pair from the stream
-        unsigned int val2 = parse_unicode_hex(ctx);
-
-        // validate the value
-        json_assert(val2 >= 0xDC00 && val2 <= 0xDFFF, "invalid unicode");
-        unsigned int unicode = ((val - 0xD800) << 10) + (val2 - 0xDC00) + 0x10000;
-        utf8_encode(ctx, unicode, str);
+        json_assert(0xDC00 > val || val > 0xDFFF, "invalid utf8 codepoint");
+        json_assert(jbuf_add_unicode(str, val) == 0, "invalid utf8 codepoint: 0x%X", val);
         return;
     }
 
-    json_assert(0xDC00 > val || val > 0xDFFF, "invalid unicode");
-    utf8_encode(ctx, val, str);
+    // Support for UTF-16 style surrogate pairs!!!
+    // This is technically not UTF-8 but many other json libs seem to support it.
+    // Format is: \uXXXX\uXXXXX
+
+    // Check the neighbor to make sure it's a \u sequence
+    json_assert(jcontext_next(ctx) == '\\', "invalid unicode");
+    json_assert(jcontext_next(ctx) == 'u', "invalid unicode");
+
+    // read the surrogate pair from the stream
+    unsigned int val2 = parse_unicode_hex(ctx);
+
+    // validate the value
+    json_assert(val2 >= 0xDC00 && val2 <= 0xDFFF, "invalid utf8 codepoint: 0x%X", val2);
+    unsigned int unicode = ((val - 0xD800) << 10) + (val2 - 0xDC00) + 0x10000;
+    json_assert(jbuf_add_unicode(str, unicode) == 0, "invalid utf8 codepoint: 0x%X", unicode);
+
 }
 
 //------------------------------------------------------------------------------
@@ -2394,14 +2412,62 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                         return;
 
                     default:
-                        // make sure this is not carry over byte
-                        if ((ch & 0xC0) != 0x80)
+                    {
+                        int bytes = utf8_bytes(ch);
+                        switch(bytes)
                         {
-                            // adjust the column based on unicode chars
-                            ctx->err->col -= ( utf8_bytes(ch) - 1 );
+                            case 0:
+                                json_assert(JFALSE, "invalid utf8 sequence");
+                                break;
+
+                            case 1:
+                                jbuf_add(str, (char)ch);
+                                break;
+
+                            default:
+                            {
+                                const char* beg = str->ptr;
+
+                                /* loop
+
+                                jbuf_add(str, (char)ch);
+                                for ( size_t i = 0; i < bytes; i++)
+                                {
+                                    jbuf_add(str, (char)jcontext_next(ctx));
+                                }
+
+                                */
+
+                                // unroll the loop for better performance
+                                jbuf_add(str, (char)ch);
+                                switch(bytes)
+                                {
+                                    case 6:
+                                        jbuf_add(str, (char)jcontext_next(ctx));
+                                    case 5:
+                                        jbuf_add(str, (char)jcontext_next(ctx));
+                                    case 4:
+                                        jbuf_add(str, (char)jcontext_next(ctx));
+                                    case 3:
+                                        jbuf_add(str, (char)jcontext_next(ctx));
+                                    case 2:
+                                        jbuf_add(str, (char)jcontext_next(ctx));
+                                        break;
+
+                                    default:
+                                        json_assert(JFALSE, "invalid utf8 codepoint");
+                                        break;
+                                }
+
+                                // validate the codepoint
+                                uint32_t codepoint;
+                                const char* ptr = utf8_codepoint(beg, &codepoint);
+                                json_assert(codepoint > 0, "invalid utf8 codepoint");
+                                json_assert(ptr != NULL, "invalid utf8 sequence");
+                                break;
+                            }
                         }
-                        jbuf_add(str, (char)ch);
-                        break;
+                    }
                 }
                 break;
             }
