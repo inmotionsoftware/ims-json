@@ -52,7 +52,7 @@
 
 #pragma mark - constants
 
-const char JVER[32] = "0.9.0.0";
+const char JVER[32] = "0.9.0.1";
 
 #define JINLINE static __inline
 
@@ -271,19 +271,52 @@ JINLINE int jsnprintf( char* buf, size_t blen, const char* fmt, ... )
 }
 
 //------------------------------------------------------------------------------
-#define json_assert(...) _json_assert(ctx, __VA_ARGS__)
-JINLINE void _json_assert(jcontext_t* ctx, jbool_t b, const char* fmt, ...)
+#define json_assert(...) jcontext_assert(ctx, __VA_ARGS__)
+#define json_passert(...) jcontext_passert(ctx, __VA_ARGS__)
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_fmt_msg(jcontext_t* ctx, const char* fmt, va_list args)
+{
+    assert(ctx);
+    assert(fmt);
+    assert(ctx->err);
+    const size_t len = sizeof(ctx->err->msg);
+    vsnprintf(ctx->err->msg, len, fmt, args);
+    ctx->err->msg[len-1] = '\0';
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_assert(jcontext_t* ctx, jbool_t b, const char* fmt, ...)
 {
     if (b) return;
 
-    const size_t len = sizeof(ctx->err->msg);
+    va_list args;
+    va_start(args, fmt);
+    jcontext_fmt_msg(ctx, fmt, args);
+    va_end(args);
+
+    json_do_err(ctx);
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_passert(jcontext_t* ctx, jbool_t b, const char* fmt, ...)
+{
+    if (b) return;
 
     va_list args;
     va_start(args, fmt);
-    vsnprintf(ctx->err->msg, len, fmt, args);
+    jcontext_fmt_msg(ctx, fmt, args);
     va_end(args);
-    ctx->err->msg[len-1] = '\0';
-    va_end(args);
+
+    assert(ctx);
+    assert(ctx->err);
+
+    // error happened at previous location!
+    if (ctx->err->line != ctx->err->pline)
+    {
+        ctx->err->col = ctx->err->pcol;
+        ctx->err->line = ctx->err->pline;
+    }
     json_do_err(ctx);
 }
 
@@ -955,7 +988,7 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
 
         case JTYPE_NUM:
         {
-            jprint_fmt(ctx, "%.0f", json_get_num(jsn, val));
+            jprint_fmt(ctx, "%g", json_get_num(jsn, val));
             break;
         }
 
@@ -1014,6 +1047,11 @@ JINLINE size_t json_add_obj( json_t* jsn )
     assert(obj);
     obj->cap = BUF_SIZE;
     obj->len = 0;
+
+    if (jval_is_nil(jsn->root))
+    {
+        jsn->root = (jval_t){JTYPE_OBJ, (uint32_t)idx};
+    }
     return idx;
 }
 
@@ -1047,6 +1085,11 @@ JINLINE size_t json_add_array( json_t* jsn )
     assert(array);
     array->cap = BUF_SIZE;
     array->len = 0;
+
+    if (jval_is_nil(jsn->root))
+    {
+        jsn->root = (jval_t){JTYPE_ARRAY, (uint32_t)idx};
+    }
     return idx;
 }
 
@@ -1673,7 +1716,7 @@ JINLINE void jbuf_reserve( jbuf_t* buf, size_t cap )
 JINLINE size_t jbuf_write( jbuf_t* buf, const void* ptr, size_t n )
 {
     jbuf_reserve(buf, n);
-    memcpy(buf->ptr, ptr, n);
+    memcpy(buf->ptr+buf->len, ptr, n);
     buf->len += n;
     return n;
 }
@@ -1710,9 +1753,7 @@ json_t* json_init( json_t* jsn )
     jsn->objs.len = 0;
     jsn->objs.ptr = NULL;
 
-    // add the root object
-    size_t idx = json_add_obj(jsn);
-    assert(idx == 0);
+    jsn->root = (jval_t){JTYPE_NIL, 0};
 
     return jsn;
 }
@@ -1786,7 +1827,18 @@ size_t json_print(json_t* jsn, int flags, print_func p, void* udata)
 
     if (setjmp(ctx.jerr_jmp) == 0)
     {
-        _jobj_print(&ctx, json_root(jsn), 0);
+        // special case if we don't have any root
+        jval_t root = json_root(jsn);
+        if (!jval_is_nil(root))
+        {
+            _jval_print(&ctx, jsn, root, 0);
+        }
+        else
+        {
+            jprint_char(&ctx, '{');
+            jprint_newline(&ctx);
+            jprint_char(&ctx, '}');
+        }
         return ctx.nbytes;
     }
     else
@@ -1890,10 +1942,51 @@ void json_free(json_t* jsn)
 }
 
 //------------------------------------------------------------------------------
-jobj_t json_root(json_t* jsn)
+jobj_t json_root_obj( json_t* jsn )
 {
     assert(jsn);
-    return (jobj_t){jsn, 0};
+
+    // no root yet, let's set it now
+    switch(jval_type(jsn->root))
+    {
+        case JTYPE_NIL:
+            json_add_obj(jsn);
+            break;
+
+        case JTYPE_OBJ:
+            break;
+
+        default:
+            assert(JFALSE);
+            break;
+    }
+
+    assert(jsn->objs.len > 0);
+    return (jobj_t){jsn, jsn->root.idx};
+}
+
+//------------------------------------------------------------------------------
+jarray_t json_root_array( json_t* jsn )
+{
+    assert(jsn);
+
+    // no root yet, let's set it now
+    switch(jval_type(jsn->root))
+    {
+        case JTYPE_NIL:
+            json_add_array(jsn);
+            break;
+
+        case JTYPE_ARRAY:
+            break;
+
+        default:
+            assert(JFALSE);
+            break;
+    }
+
+    assert(jsn->arrays.len > 0);
+    return (jarray_t){jsn, jsn->root.idx};
 }
 
 #pragma mark - jcontext_t
@@ -1965,6 +2058,7 @@ JINLINE int jcontext_peek( jcontext_t* ctx )
 JINLINE int jcontext_next( jcontext_t* ctx )
 {
     ++ctx->err->col;
+    ++ctx->err->off;
     ++ctx->beg;
     if (ctx->file)
     {
@@ -1976,6 +2070,8 @@ JINLINE int jcontext_next( jcontext_t* ctx )
 //------------------------------------------------------------------------------
 JINLINE void parse_whitespace( jcontext_t* ctx )
 {
+    ctx->err->pline = ctx->err->line;
+    ctx->err->pcol = ctx->err->col;
     for ( int ch = jcontext_peek(ctx); ch >= 0; ch = jcontext_next(ctx) )
     {
         switch(ch)
@@ -2117,13 +2213,6 @@ JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_digits( jcontext_t* ctx )
-{
-    size_t places = 0;
-    return parse_digitsp(ctx, &places);
-}
-
-//------------------------------------------------------------------------------
 JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
 {
     jbool_t isint = JTRUE;
@@ -2132,7 +2221,10 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
     jnum_t sign = parse_sign(ctx);
 
     // whole number
-    jnum_t num = parse_digits(ctx);
+    size_t p = 0;
+    jnum_t num = parse_digitsp(ctx, &p);
+    p *= 0.1;
+    json_assert( (num == 0 && p == 1) || (num >= p), "leading zero on integer value");
 
     // fraction
     switch (jcontext_peek(ctx))
@@ -2141,8 +2233,11 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
         {
             isint = JFALSE;
             jcontext_next(ctx);
-            size_t places = 1;
+
+            size_t places = 0;
             jnum_t fract = parse_digitsp(ctx, &places);
+            json_assert(places > 1, "number truncated after '.'");
+
             num += fract / places;
             break;
         }
@@ -2160,7 +2255,11 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
             isint = JFALSE;
             jcontext_next(ctx);
             jnum_t esign = parse_sign(ctx);
-            jnum_t digits = parse_digits(ctx);
+
+            size_t places = 0;
+            jnum_t digits = parse_digitsp(ctx, &places);
+            json_assert(places > 1, "number truncated after 'e'");
+
             num *= pow(10, esign*digits);
             break;
         }
@@ -2171,14 +2270,15 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
 
     *_isint = isint;
 
-    // apply sign
-    return sign * num;
+    double d = sign * num;
+    json_assert(!isnan(d) && !isinf(d), "numeric overflow");
+    return d;
 }
 
 //------------------------------------------------------------------------------
 JINLINE unsigned int parse_unicode_hex(jcontext_t* ctx)
 {
-    return char_to_hex(ctx, jcontext_peek(ctx)) << 12 |
+    return char_to_hex(ctx, jcontext_next(ctx)) << 12 |
            char_to_hex(ctx, jcontext_next(ctx)) << 8 |
            char_to_hex(ctx, jcontext_next(ctx)) << 4 |
            char_to_hex(ctx, jcontext_next(ctx));
@@ -2187,7 +2287,7 @@ JINLINE unsigned int parse_unicode_hex(jcontext_t* ctx)
 //------------------------------------------------------------------------------
 JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
 {
-    json_assert(jcontext_peek(ctx) == 'u', "not a valid unicode sequence"); jcontext_next(ctx);
+    json_assert(jcontext_peek(ctx) == 'u', "not a valid unicode sequence");
 
     // U+XXXX
     unsigned int val = parse_unicode_hex(ctx);
@@ -2203,7 +2303,7 @@ JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
         unsigned int val2 = parse_unicode_hex(ctx);
 
         // validate the value
-        json_assert(val2 < 0xDC00 || val2 > 0xDFFF, "invalid unicode");
+        json_assert(val2 >= 0xDC00 && val2 <= 0xDFFF, "invalid unicode");
         unsigned int unicode = ((val - 0xD800) << 10) + (val2 - 0xDC00) + 0x10000;
         utf8_encode(ctx, unicode, str);
         return;
@@ -2269,6 +2369,22 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
             {
                 switch (ch)
                 {
+                    case '\0':
+                        jbuf_add(str, (char)ch);
+                        json_assert(JFALSE, "NUL character in string: '%s\\0'", str->ptr);
+                        break;
+
+                    // control characters not allowed
+                    case '\f':
+                    case '\b':
+                    case '\n':
+                    case '\r':
+                    case '\t':
+                    case '/':
+                        jbuf_add(str, '\0');
+                        json_assert(JFALSE, "control character 0x%X found in string: '%s'", ch, str->ptr);
+                        break;
+
                     case '\\':
                         break;
 
@@ -2282,7 +2398,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                         if ((ch & 0xC0) != 0x80)
                         {
                             // adjust the column based on unicode chars
-                            ctx->err->col -= ( utf8_bytes(ch)-1 );
+                            ctx->err->col -= ( utf8_bytes(ch) - 1 );
                         }
                         jbuf_add(str, (char)ch);
                         break;
@@ -2313,14 +2429,14 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
         {
             case ',':
             {
-                json_assert(len == ++count, "expected value after ','");
+                json_passert(len == ++count, "expected value after ','");
                 jcontext_next(ctx);
                 break;
             }
 
             case ']':
             {
-                json_assert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
+                json_passert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
                 jcontext_next(ctx);
                 jarray_truncate(array);
                 return;
@@ -2328,7 +2444,7 @@ JINLINE void parse_array(jarray_t array, jcontext_t* ctx)
 
             default:
             {
-                json_assert(len == count, "missing ',' separator");
+                json_passert(len == count, "missing ',' separator");
                 jval_t val = parse_val(jsn, ctx);
                 *_jarray_add_val(_jarray_get_array(array)) = val;
                 break;
@@ -2354,14 +2470,14 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
         {
             case ',':
             {
-                json_assert(len == ++count, "expected key/value after ','");
+                json_passert(len == ++count, "expected key/value after ','");
                 jcontext_next(ctx);
                 break;
             }
 
             case '}':
             {
-                json_assert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
+                json_passert( len == 0 || (len-count) == 1, "trailing ',' not allowed");
                 jcontext_next(ctx);
                 jobj_truncate(obj);
                 return;
@@ -2369,16 +2485,23 @@ JINLINE void parse_obj(jobj_t obj, jcontext_t* ctx)
 
             default:
             {
-                json_assert(len == count, "missing ',' separator");
+                json_passert(len == count, "missing ',' separator");
+
+                // parse key
                 parse_str(&ctx->strbuf, ctx);
                 const char* key = ctx->strbuf.ptr;
-
                 size_t kvidx = jobj_add_keyl(obj, key, ctx->strbuf.len);
 
                 parse_whitespace(ctx);
-                json_assert(jcontext_peek(ctx) == ':', "expected ':' after key: '%s', found '%c'", key, jcontext_peek(ctx)); jcontext_next(ctx);
+
+                // parse separator
+                int ch = jcontext_peek(ctx);
+                json_passert(ch == ':', "expected separator ':' after key \"%s\", found '%c' instead.", key, ch);
+                jcontext_next(ctx);
+
                 parse_whitespace(ctx);
 
+                // parse the value
                 jkv_set_val(obj, kvidx, parse_val(jsn, ctx));
                 break;
             }
@@ -2446,6 +2569,12 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
         {
             jbool_t isint;
             jnum_t num = parse_num(ctx, &isint);
+
+            // TODO support for integer types
+            if (isint)
+            {
+                json_assert(num<=LLONG_MAX && num>=LLONG_MIN, "integer overflow");
+            }
             return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
         }
 
@@ -2464,6 +2593,9 @@ void jerr_init( jerr_t* err )
 {
     assert(err);
     err->col = 0;
+    err->pcol = 0;
+    err->pline = 0;
+    err->off = 0;
     err->line = 0;
     err->src[0] = '\0';
     err->msg[0] = '\0';
@@ -2496,13 +2628,13 @@ void jerr_set_msg( jerr_t* err, const char* msg )
 }
 
 //------------------------------------------------------------------------------
-int json_parse_file( json_t* jsn, jcontext_t* ctx )
+int json_parse( json_t* jsn, jcontext_t* ctx )
 {
     assert(jsn);
     assert(ctx);
 
     // clear out the json doc before loading again
-    if (jobj_len(json_root(jsn)) > 0)
+    if ( jsn->arrays.len > 0 || jsn->objs.len > 0 )
     {
         json_clear(jsn);
     }
@@ -2515,17 +2647,30 @@ int json_parse_file( json_t* jsn, jcontext_t* ctx )
 
     if (setjmp(ctx->jerr_jmp) == 0)
     {
-        int ch = jcontext_peek(ctx);
-        switch (ch)
+        switch(jcontext_peek(ctx))
         {
             case '{':
-                parse_obj(json_root(jsn), ctx);
+                parse_val(jsn, ctx);
+                break;
+
+            case '[':
+                parse_val(jsn, ctx);
                 break;
 
             default:
+                json_assert(JFALSE, "json must start with an object or array");
                 break;
         }
+
         ctx->buf[0] = '\0';
+
+        if (jcontext_peek(ctx) != EOF)
+        {
+            parse_whitespace(ctx);
+            int ch = jcontext_peek(ctx);
+            json_assert(ch == EOF, "unexpected character '%c' trailing json", ch);
+        }
+
         return EXIT_SUCCESS;
     }
 
@@ -2551,7 +2696,7 @@ JINLINE int _json_load_file(json_t* jsn, const char* src, FILE* file, jerr_t* er
     jerr_init_src(err, src);
     ctx.err = err;
 
-    int status = json_parse_file(jsn, &ctx);
+    int status = json_parse(jsn, &ctx);
     if (status != 0)
     {
         json_destroy(jsn); jsn = NULL;
@@ -2581,7 +2726,7 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, const void* buf, size_t
     json_arrays_reserve(jsn, est);
     json_objs_reserve(jsn, est);
 
-    int status = json_parse_file(jsn, &ctx);
+    int status = json_parse(jsn, &ctx);
     if (status != 0)
     {
         json_clear(jsn);
@@ -2694,7 +2839,10 @@ jmem_stats_t json_get_mem(json_t* jsn)
 JINLINE void compile_macros()
 {
     json_t* jsn = json_new();
-    jobj_t obj = json_root(jsn);
+    jval_t root = json_root(jsn);
+
+    jobj_t obj = json_get_obj(jsn, root);
+
     jarray_t array = jobj_find_array(obj, "");
     jval_t val = jarray_get(array, 0);
     const char* key = "";

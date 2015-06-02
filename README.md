@@ -98,10 +98,14 @@ is 42.4 MB in size. [Download here](http://mtgjson.com/json/AllSets-x.json)
 
 The comparision was run against [jannson (v2.7)](http://www.digip.org/jansson/)
 a C library, [cson (831c0ee46e)](http://fossil.wanderinghorse.net/wikis/cson/?page=cson) 
-another C library and [Gson (v2.3.1)](https://code.google.com/p/google-gson/) a 
-popular Java based parser. Gson was included purely as a baseline between native
-code vs virtual machine code to illustrate how efficient C code can be. There 
-are likely faster Java-based parsers out there.
+another C library, and [Gson (v2.3.1)](https://code.google.com/p/google-gson/) a 
+popular Java based parser. 
+
+Gson was included because I have used it in the past on some android projects 
+and as a reference point to see how a non-C based parsers stacks up. It is
+particularly poor in memory usage which has more to do with Java overhead than 
+anything else. If you need to load some large json docs in Java you might be 
+better off using a stream parser or wrapping ims-json with some jni calls...
 
 ### Runtime performance
 library | citylots.json| magic.json|
@@ -337,8 +341,8 @@ std::for_each(root.begin(), root.end(), []( const obj::key_val& pair )
     // do stuff...
 });
 ```
-
-#License
+--------------------------------------------------------------------------------
+#MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

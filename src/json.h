@@ -877,6 +877,11 @@ struct jerr_t
     /// the column within the line the error occured on.
     size_t col;
 
+    size_t pcol;
+    size_t pline;
+
+    size_t off;
+
     /// the document source
     char src[255];
 
@@ -923,6 +928,8 @@ typedef struct jerr_t jerr_t;
 */
 struct json_t
 {
+    jval_t root;
+
     struct
     {
         size_t len;
@@ -1181,12 +1188,41 @@ void json_free(json_t* j);
 void json_destroy(json_t* jsn);
 
 /*!
+    Retrieves the root value of the given json, or a NIL value if it does not 
+    have one.
+
+    @see jval_is_nil
+    
+    @param JSN the json doc. Must not be null.
+    @return the json doc's root value, or NIL if it does not have one.
+*/
+#define json_root(JSN) (JSN)->root
+
+/*!
     Retrieves the root object of the given json. 
     
+    @details
+    If the json is empty (i.e. no root) a new empty json object is added and 
+    assigned as the root. However, if the root is already assigned and is 
+    something other than an object the results are undefined.
+
     @param jsn the json doc. Must not be null.
     @return the json doc's root object.
 */
-jobj_t json_root(json_t* jsn);
+jobj_t json_root_obj( json_t* jsn );
+
+/*!
+    Retrieves the root array of the given json.
+    
+    @details
+    If the json is empty (i.e. no root) a new empty json array is added and
+    assigned as the root. However, if the root is already assigned and is 
+    something other than an array the results are undefined.
+    
+    @param jsn the json doc. Must not be null.
+    @return the json doc's root array.
+*/
+jarray_t json_root_array( json_t* jsn );
 
 /*!
     Get's a string value from a json doc. If the value is not a string a NULL 

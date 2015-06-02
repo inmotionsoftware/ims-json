@@ -389,6 +389,8 @@ namespace ims
         bool operator== ( const array& a ) const { return m_array.json == a.m_array.json && m_array.idx == a.m_array.idx; }
         size_t size() const { return jarray_len(m_array); }
 
+        bool empty() const { return jarray_len(m_array) == 0; }
+
         array& push_back( int n )
         {
             jarray_add_num(m_array, n);
@@ -443,14 +445,14 @@ namespace ims
     };
 
     //--------------------------------------------------------------------------
-    array obj::add_array( const char* key ) { return jobj_add_array(m_obj, key); }
+    inline array obj::add_array( const char* key ) { return jobj_add_array(m_obj, key); }
 
     //--------------------------------------------------------------------------
-    array obj::setter::add_array() { return jobj_add_array(m_obj, m_key); }
+    inline array obj::setter::add_array() { return jobj_add_array(m_obj, m_key); }
 
     //--------------------------------------------------------------------------
     template < typename... ARGS >
-    class array obj::setter::add_array( const ARGS&... args )
+    inline class array obj::setter::add_array( const ARGS&... args )
     {
         array a = add_array();
         _add(a, args...);
@@ -459,14 +461,14 @@ namespace ims
 
     //--------------------------------------------------------------------------
     template < typename T >
-    void obj::setter::_add( array a, const T& t )
+    inline void obj::setter::_add( array a, const T& t )
     {
         a.push_back(t);
     }
 
     //--------------------------------------------------------------------------
     template < typename T, typename... ARGS >
-    void obj::setter::_add( array a, const T& t, const ARGS&... args )
+    inline void obj::setter::_add( array a, const T& t, const ARGS&... args )
     {
         a.push_back(t);
         _add(a, args...);
@@ -515,7 +517,7 @@ namespace ims
             Tests whether or not this json document is empty or null.
             @return true if this json document is empty or null.
         */
-        bool empty() const { return m_jsn == nullptr || root().empty(); }
+        bool empty() const;
 
         /**
             Tests whether or not this json document is null.
@@ -542,7 +544,19 @@ namespace ims
             Gets the root object for this json document.
             @return the root object.
         */
-        obj root() const { return json_root(m_jsn); }
+        const_val root() const;
+
+        /**
+            Gets the root object for this json document.
+            @return the root object.
+        */
+        obj root_obj() const { return json_root_obj(m_jsn); }
+
+        /**
+            Gets the root object for this json document.
+            @return the root object.
+        */
+        array root_array() const { return json_root_array(m_jsn); }
 
         /**
             Converts this json document into a string using the given options.
@@ -760,7 +774,7 @@ namespace ims
     };
 
     //--------------------------------------------------------------------------
-    array& array::push_back( const val& v )
+    inline array& array::push_back( const val& v )
     {
         switch (v.type())
         {
@@ -811,7 +825,7 @@ namespace ims
     }
 
     //--------------------------------------------------------------------------
-    void obj::setter::operator= ( const class val& v )
+    inline void obj::setter::operator= ( const class val& v )
     {
         switch (v.type())
         {
@@ -901,28 +915,28 @@ namespace ims
     };
 
     //--------------------------------------------------------------------------
-    std::ostream& operator<< ( std::ostream& os, const obj& o )
+    inline std::ostream& operator<< ( std::ostream& os, const obj& o )
     {
         jobj_print(o, JPRINT_PRETTY, ostream_write, &os);
         return os;
     }
 
     //--------------------------------------------------------------------------
-    std::ostream& operator<< ( std::ostream& os, const array& a )
+    inline std::ostream& operator<< ( std::ostream& os, const array& a )
     {
         jarray_print(a, JPRINT_PRETTY, ostream_write, &os);
         return os;
     }
 
     //--------------------------------------------------------------------------
-    std::ostream& operator<< ( std::ostream& os, const const_val& val )
+    inline std::ostream& operator<< ( std::ostream& os, const const_val& val )
     {
         jval_print(val.m_jsn, val.m_val, JPRINT_PRETTY, ostream_write, &os);
         return os;
     }
 
     //--------------------------------------------------------------------------
-    std::ostream& operator<< ( std::ostream& os, const json& jsn )
+    inline std::ostream& operator<< ( std::ostream& os, const json& jsn )
     {
         if (jsn)
         {
@@ -932,7 +946,30 @@ namespace ims
     }
 
     //--------------------------------------------------------------------------
-    class const_val array::iterator::operator*() const
+    inline const_val json::root() const
+    {
+        return const_val( m_jsn, json_root(m_jsn));
+    }
+
+    //--------------------------------------------------------------------------
+    inline bool json::empty() const
+    {
+        if (!m_jsn) return true;
+
+        auto r = root();
+        switch (r.type())
+        {
+            case JTYPE_ARRAY:
+                return ((array)r).empty();
+
+            case JTYPE_OBJ:
+                return ((obj)r).empty();
+        }
+        return true;
+    }
+
+    //--------------------------------------------------------------------------
+    inline class const_val array::iterator::operator*() const
     {
         jval_t val = jarray_get(m_array, m_idx);
         json_t* jsn = jobj_get_json(m_array.m_array);
@@ -940,7 +977,7 @@ namespace ims
     }
 
     //--------------------------------------------------------------------------
-    obj::key_val obj::iterator::operator*() const
+    inline obj::key_val obj::iterator::operator*() const
     {
         jval_t val;
         const char* key = jobj_get(m_obj, m_idx, &val);

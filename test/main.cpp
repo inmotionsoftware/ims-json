@@ -211,7 +211,7 @@ static void test_reload()
     static const char KEY[] = "the-thing-that-should-not-be";
 
     json_t* jsn = json_new();
-    jobj_add_str(json_root(jsn), KEY, "cthulu");
+    jobj_add_str(json_root_obj(jsn), KEY, "cthulu");
 
     const char* json_doc = STRINGIFY
     ({
@@ -226,7 +226,7 @@ static void test_reload()
         exit(EXIT_FAILURE);
     }
 
-    assert(!jobj_find_str(json_root(jsn), KEY));
+    assert(!jobj_find_str(json_root_obj(jsn), KEY));
 
     json_free(jsn); jsn = NULL;
 }
@@ -266,7 +266,7 @@ static void test_construction()
     LOG_FUNC();
 
     json_t* jsn = json_new();
-    jobj_t root = json_root(jsn);
+    jobj_t root = json_root_obj(jsn);
     {
         jobj_add_bool(root, "true", true);
         jobj_add_bool(root, "false", false);
@@ -356,7 +356,7 @@ static void test_construction_cpp()
     LOG_FUNC();
 
     ims::json jsn;
-    auto root = jsn.root();
+    auto root = jsn.root_obj();
     {
         root["true"] = true;
         root["false"] = false;
