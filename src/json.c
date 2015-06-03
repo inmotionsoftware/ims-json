@@ -2034,6 +2034,9 @@ void json_destroy(json_t* jsn)
     // cleanup numbers
     jfree(jsn->nums.ptr); jsn->nums.ptr = NULL;
 
+    // cleanup integers
+    jfree(jsn->ints.ptr); jsn->ints.ptr = NULL;
+
     // cleanup objects
     for ( size_t i = 0; i < jsn->objs.len; i++ )
     {
@@ -2375,8 +2378,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
     // whole number
     size_t p = 0;
     jnum_t num = parse_digitsp(ctx, &p);
-    p *= 0.1;
-    json_assert( (num == 0 && p == 1) || (num >= p), "leading zero on integer value");
+    json_assert( (num == 0 && p == 10) || (num*10 >= p), "leading zero on integer value");
 
     // fraction
     switch (jcontext_peek(ctx))
@@ -2894,6 +2896,7 @@ JINLINE int _json_load_buf(json_t* jsn, const char* src, const void* buf, size_t
 
     jmap_rehash(&jsn->strmap, est);
     json_nums_reserve(jsn, est);
+    json_ints_reserve(jsn, est);
     json_arrays_reserve(jsn, est);
     json_objs_reserve(jsn, est);
 
@@ -2971,6 +2974,16 @@ JINLINE jmem_t json_mem_nums( json_t* jsn )
     return mem;
 }
 
+
+//------------------------------------------------------------------------------
+JINLINE jmem_t json_mem_ints( json_t* jsn )
+{
+    jmem_t mem = {0,0};
+    mem.used += sizeof(jint_t) * jsn->ints.len;
+    mem.reserved += sizeof(jint_t) * jsn->ints.cap;
+    return mem;
+}
+
 //------------------------------------------------------------------------------
 JINLINE jmem_t json_mem_objs( json_t* jsn )
 {
@@ -2996,12 +3009,13 @@ jmem_stats_t json_get_mem(json_t* jsn)
     memset(&stats, 0, sizeof(stats));
 
     stats.nums = json_mem_nums(jsn);
+    stats.ints = json_mem_ints(jsn);
     stats.arrays = json_mem_arrays(jsn);
     stats.objs = json_mem_objs(jsn);
     stats.strs = jmap_get_mem(&jsn->strmap);
 
-    stats.total.used = stats.nums.used + stats.arrays.used + stats.objs.used + stats.strs.used;
-    stats.total.reserved = stats.nums.reserved + stats.arrays.reserved + stats.objs.reserved + stats.strs.reserved;
+    stats.total.used = stats.nums.used + stats.ints.used + stats.arrays.used + stats.objs.used + stats.strs.used;
+    stats.total.reserved = stats.nums.reserved + stats.ints.reserved + stats.arrays.reserved + stats.objs.reserved + stats.strs.reserved;
 
     return stats;
 }

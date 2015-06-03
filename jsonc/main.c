@@ -213,23 +213,28 @@ int main(int argc, char* argv[])
         {
             jobj_t strs = jobj_add_obj(root, "strings");
             {
-                jobj_add_num(strs, "used", mem.strs.used);
-                jobj_add_num(strs, "reserved", mem.strs.reserved);
+                jobj_add_int(strs, "used", mem.strs.used);
+                jobj_add_int(strs, "reserved", mem.strs.reserved);
             }
             jobj_t nums = jobj_add_obj(root, "nums");
             {
-                jobj_add_num(nums, "used", mem.nums.used);
-                jobj_add_num(nums, "reserved", mem.nums.reserved);
+                jobj_add_int(nums, "used", mem.nums.used);
+                jobj_add_int(nums, "reserved", mem.nums.reserved);
+            }
+            jobj_t ints = jobj_add_obj(root, "ints");
+            {
+                jobj_add_int(ints, "used", mem.ints.used);
+                jobj_add_int(ints, "reserved", mem.ints.reserved);
             }
             jobj_t objs = jobj_add_obj(root, "objs");
             {
-                jobj_add_num(objs, "used", mem.objs.used);
-                jobj_add_num(objs, "reserved", mem.objs.reserved);
+                jobj_add_int(objs, "used", mem.objs.used);
+                jobj_add_int(objs, "reserved", mem.objs.reserved);
             }
             jobj_t arrays = jobj_add_obj(root, "arrays");
             {
-                jobj_add_num(arrays, "used", mem.arrays.used);
-                jobj_add_num(arrays, "reserved", mem.arrays.reserved);
+                jobj_add_int(arrays, "used", mem.arrays.used);
+                jobj_add_int(arrays, "reserved", mem.arrays.reserved);
             }
         }
         json_print_file(&jsn, JPRINT_PRETTY, stderr);

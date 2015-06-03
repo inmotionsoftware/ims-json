@@ -1377,6 +1377,7 @@ typedef struct jmem_t jmem_t;
 struct jmem_stats_t
 {
     jmem_t nums;
+    jmem_t ints;
     jmem_t objs;
     jmem_t arrays;
     jmem_t strs;
