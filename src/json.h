@@ -180,6 +180,7 @@ namespace ims {
     Json number value.
 */
 typedef double jnum_t;
+typedef int64_t jint_t;
 
 /*!
     Json boolean.
@@ -225,7 +226,8 @@ enum jtype_t
     JTYPE_ARRAY = 3,
     JTYPE_OBJ   = 4,
     JTYPE_TRUE  = 5,
-    JTYPE_FALSE = 6
+    JTYPE_FALSE = 6,
+    JTYPE_INT   = 7
 };
 typedef enum jtype_t jtype_t;
 
@@ -330,7 +332,16 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
     @param VAL the value.
     @return whether or not the value is a number type.
 */
-#define jval_is_num(VAL) (jval_type(VAL) == JTYPE_NUM)
+#define jval_is_num(VAL) (jval_type(VAL) == JTYPE_NUM || jval_type(VAL) == JTYPE_INT)
+
+/*!
+    @function jval_is_int
+    Checks whether or not the given value is an integer type.
+    
+    @param VAL the value.
+    @return whether or not the value is a integer type.
+*/
+#define jval_is_int(VAL) (jval_type(VAL) == JTYPE_INT)
 
 /*!
     @function jval_is_obj
@@ -433,6 +444,16 @@ void jobj_reserve( jobj_t obj, size_t n );
     @param num the number to append.
 */
 void jobj_add_num( jobj_t obj, const char* key, jnum_t num );
+
+
+/*!
+    Appends an integer to the object with the given key.
+    
+    @param obj the object to append to.
+    @param key the key of the number.
+    @param num the integer to append.
+*/
+void jobj_add_int( jobj_t obj, const char* key, jint_t num );
 
 /*!
     Appends a string to the object with the given key.
@@ -691,6 +712,14 @@ void jarray_reserve( jarray_t a, size_t n );
 void jarray_add_num( jarray_t a, jnum_t num );
 
 /*!
+    Appends an integer to the end of array.
+    
+    @param a the array. 
+    @param num the integer to append.
+*/
+void jarray_add_int( jarray_t a, jint_t num );
+
+/*!
     Appends a string to the end of the array.
     
     @param a the array.
@@ -936,6 +965,13 @@ struct json_t
         size_t cap;
         jnum_t* ptr;
     } nums;
+
+    struct
+    {
+        size_t len;
+        size_t cap;
+        jint_t* ptr;
+    } ints;
 
     struct
     {
@@ -1252,6 +1288,18 @@ const char* json_get_str( json_t* jsn, jval_t val );
     @return The number value, or 0 if not found / invalid.
 */
 jnum_t json_get_num( json_t* jsn, jval_t val );
+
+/*!
+    Get's an integer value from a json doc. If the value is not an integer a 0 
+    is returned. If the value does not belong to the given json doc, the result 
+    is undefined.
+    
+    @param jsn the json doc. Must not be null.
+    @param val the value to retrieve. Must be an integer value and must belong to
+               the json doc.
+    @return The number value, or 0 if not found / invalid.
+*/
+jint_t json_get_int( json_t* jsn, jval_t val );
 
 /*!
     Get's a boolean value from a json doc. If the value is not a boolean a 

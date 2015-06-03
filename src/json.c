@@ -995,13 +995,13 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
             json_print_str(ctx, json_get_str(jsn, val));
             break;
 
-        case JTYPE_NUM:
-        {
-            jnum_t num = json_get_num(jsn, val);
-            jbool_t isint = (num == floor(num));
-            jprint_fmt(ctx, isint ? "%0.0f" : "%g", num);
+        case JTYPE_INT:
+            jprint_fmt(ctx, "%lld", json_get_int(jsn, val));
             break;
-        }
+
+        case JTYPE_NUM:
+            jprint_fmt(ctx, "%g", json_get_num(jsn, val));
+            break;
 
         case JTYPE_ARRAY:
             _jarray_print(ctx, json_get_array(jsn, val), depth);
@@ -1105,6 +1105,17 @@ JINLINE size_t json_add_array( json_t* jsn )
 }
 
 //------------------------------------------------------------------------------
+JINLINE void json_ints_reserve( json_t* jsn, size_t len )
+{
+    assert(jsn);
+    if (jsn->ints.len+len <= jsn->ints.cap)
+        return;
+
+    jsn->ints.cap = grow(jsn->ints.len+len, jsn->ints.cap);
+    jsn->ints.ptr = (jint_t*)jrealloc(jsn->ints.ptr, jsn->ints.cap * sizeof(jint_t));
+}
+
+//------------------------------------------------------------------------------
 JINLINE void json_nums_reserve( json_t* jsn, size_t len )
 {
     assert(jsn);
@@ -1113,6 +1124,17 @@ JINLINE void json_nums_reserve( json_t* jsn, size_t len )
 
     jsn->nums.cap = grow(jsn->nums.len+len, jsn->nums.cap);
     jsn->nums.ptr = (jnum_t*)jrealloc(jsn->nums.ptr, jsn->nums.cap * sizeof(jnum_t));
+}
+
+
+//------------------------------------------------------------------------------
+JINLINE size_t json_add_int( json_t* jsn, jint_t n )
+{
+    assert(jsn);
+    json_ints_reserve(jsn, 1);
+    size_t idx = jsn->ints.len++;
+    jsn->ints.ptr[idx] = n;
+    return idx;
 }
 
 //------------------------------------------------------------------------------
@@ -1146,9 +1168,35 @@ const char* json_get_str( json_t* jsn, jval_t val )
 }
 
 //------------------------------------------------------------------------------
+jint_t json_get_int( json_t* jsn, jval_t val )
+{
+    switch (jval_type(val))
+    {
+        case JTYPE_NUM:
+            return (jint_t)jsn->nums.ptr[val.idx];
+
+        case JTYPE_INT:
+            return jsn->ints.ptr[val.idx];
+
+        default:
+            return 0;
+    }
+}
+
+//------------------------------------------------------------------------------
 jnum_t json_get_num( json_t* jsn, jval_t val )
 {
-    return jval_is_num(val) ? jsn->nums.ptr[val.idx] : 0;
+    switch (jval_type(val))
+    {
+        case JTYPE_NUM:
+            return jsn->nums.ptr[val.idx];
+
+        case JTYPE_INT:
+            return (jnum_t)jsn->ints.ptr[val.idx];
+
+        default:
+            return 0;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1350,6 +1398,14 @@ void jobj_add_num( jobj_t obj, const char* key, jnum_t num )
     assert(key);
     size_t idx = json_add_num(jobj_get_json(obj), num);
     jobj_add_kv(obj, key, JTYPE_NUM, idx);
+}
+
+//------------------------------------------------------------------------------
+void jobj_add_int( jobj_t obj, const char* key, jint_t num )
+{
+    assert(key);
+    size_t idx = json_add_int(jobj_get_json(obj), num);
+    jobj_add_kv(obj, key, JTYPE_INT, idx);
 }
 
 //------------------------------------------------------------------------------
@@ -1607,6 +1663,19 @@ void jarray_add_num( jarray_t _a, jnum_t num )
 }
 
 //------------------------------------------------------------------------------
+void jarray_add_int( jarray_t _a, jint_t num )
+{
+    size_t idx = json_add_int(_a.json, num);
+
+    _jarray_t* a = _jarray_get_array(_a);
+    jval_t* val = _jarray_add_val(a);
+    val->type = JTYPE_INT;
+
+    assert (idx < MAX_VAL_IDX);
+    val->idx = (uint32_t)idx;
+}
+
+//------------------------------------------------------------------------------
 void jarray_add_strl( jarray_t _a, const char* str, size_t slen )
 {
     assert(str);
@@ -1793,6 +1862,11 @@ json_t* json_init( json_t* jsn )
     jsn->nums.cap = 0;
     jsn->nums.len = 0;
     jsn->nums.ptr = NULL;
+
+    // ints
+    jsn->ints.cap = 0;
+    jsn->ints.len = 0;
+    jsn->ints.ptr = NULL;
 
     // arrays
     jsn->arrays.cap = 0;
@@ -2291,7 +2365,7 @@ JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
+JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
 {
     jbool_t isint = JTRUE;
 
@@ -2346,10 +2420,14 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jbool_t* _isint )
             break;
     }
 
-    *_isint = isint;
-
-    double d = sign * num;
+    jnum_t d = sign * num;
     json_assert(!isnan(d) && !isinf(d), "numeric overflow");
+
+    if (isint)
+    {
+        json_assert(d<=LLONG_MAX && d>=LLONG_MIN, "integer overflow");
+        *_int = (jint_t)d;
+    }
     return d;
 }
 
@@ -2656,15 +2734,19 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
         case '8':
         case '9':
         {
-            jbool_t isint;
-            jnum_t num = parse_num(ctx, &isint);
+            jint_t intval;
+            jnum_t num = parse_num(ctx, &intval);
 
             // TODO support for integer types
-            if (isint)
+            if (num == intval)
             {
                 json_assert(num<=LLONG_MAX && num>=LLONG_MIN, "integer overflow");
+                return (jval_t){JTYPE_INT, (uint32_t)json_add_int(jsn, intval)};
             }
-            return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
+            else
+            {
+                return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
+            }
         }
 
         default:
