@@ -393,25 +393,21 @@ JINLINE int utf8_bytes( int ch )
     {
         return 1;
     }
-    else if ( (ch & 0xE0) == 0xC0 )
+    else if (ch < 0xC2) // overlong 2-byte sequence
+    {
+        return 0;
+    }
+    else if ( (ch & 0xE0) == 0xC0 ) // 2-byte sequence
     {
         return 2;
     }
-    else if ( (ch & 0xF0) == 0xE0 )
+    else if ( (ch & 0xF0) == 0xE0 ) // 3-byte sequence
     {
         return 3;
     }
-    else if ( (ch & 0xF8) == 0xF0 )
+    else if ( (ch & 0xF8) == 0xF0 ) // 4-byte sequence
     {
         return 4;
-    }
-    else if ( (ch & 0xFC) == 0xF8 )
-    {
-        return 5;
-    }
-    else if ( (ch & 0xFE) == 0xFC )
-    {
-        return 6;
     }
     return 0;
 }
@@ -419,56 +415,67 @@ JINLINE int utf8_bytes( int ch )
 //------------------------------------------------------------------------------
 JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
 {
-    assert(_codepoint);
-    if (!str) return NULL;
+    *_codepoint = 0; // initialize the codepoint
 
-    uint32_t codepoint = 0;
-    switch(utf8_bytes(*str&0xFF))
+    int ch1 = *str++ & 0xFF;
+    switch( utf8_bytes(ch1) )
     {
-        case 1:
-            codepoint = *str;
-            break;
-        case 2:
-            codepoint = (*str++&0x1F) << 5;
-            codepoint = (codepoint << 6) | (*str&0x3F);
-            break;
+        case 0: // invalid
+        {
+            return NULL;
+        }
 
-        case 3:
-            codepoint = (*str++&0xF) << 4;
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str&0x3F);
-            break;
+        case 1: // 1 byte
+        {
+            *_codepoint = ch1;
+            return str;
+        }
 
-        case 4:
-            codepoint = (*str++&0x7) << 3;
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str&0x3F);
-            break;
-        case 5:
-            codepoint = (*str++&0x3) << 2;
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str&0x3F);
-            break;
+        case 2: // 2 bytes
+        {
+            int ch2 = *str++ & 0xFF;
+            if ((ch1 & 0xC0) != 0x80) return NULL;
+            *_codepoint = (ch1 << 6) + ch2 - 0x3080;
+            return str;
+        }
 
-        case 6:
-            codepoint = (*str++&0x1) << 1;
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str++&0x3F);
-            codepoint = (codepoint << 6) | (*str&0x3F);
-            break;
+        case 3: // 3 bytes
+        {
+            int ch2 = *str++ & 0xFF;
+            int ch3 = *str++ & 0xFF;
+            uint32_t cp = (ch1 << 12) + (ch2 << 6) + ch3 - 0xE2080;
+
+            if ((ch2 & 0xC0) != 0x80) return NULL;
+            if ((ch3 & 0xC0) != 0x80) return NULL;
+            if (ch1 == 0xE0 && ch2 < 0xA0) return NULL; // overlong
+            if (cp >= 0xD800 && cp <= 0xDFFF) return NULL;
+
+            *_codepoint = cp;
+            return str;
+        }
+
+        case 4: // 4 bytes
+        {
+            int ch2 = *str++ & 0xFF;
+            int ch3 = *str++ & 0xFF;
+            int ch4 = *str++ & 0xFF;
+            uint32_t cp = (ch1 << 18) + (ch2 << 12) + (ch3 << 6) + ch4 - 0x3C82080;
+
+            if ((ch2 & 0xC0) != 0x80) return NULL;
+            if ((ch3 & 0xC0) != 0x80) return NULL;
+            if ((ch4 & 0xC0) != 0x80) return NULL;
+            if (ch1 == 0xF0 && ch2 < 0x90) return NULL; // overlong
+            if (cp >= 0xD800 && cp <= 0xDFFF) return NULL; // surrogate pair
+            if (cp > 0x10FFFF) return NULL; // > U+10FFFF
+
+            *_codepoint = cp;
+            return str;
+        }
 
         default:
             return NULL;
     }
-
-    assert(_codepoint);
-    *_codepoint = codepoint;
-    return str;
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -2112,6 +2119,65 @@ JINLINE int jcontext_next( jcontext_t* ctx )
 }
 
 //------------------------------------------------------------------------------
+JINLINE uint32_t jcontext_read_utf8( jcontext_t* ctx )
+{
+    int ch1 = jcontext_peek(ctx);
+    switch( utf8_bytes(ch1) )
+    {
+        case 0: // invalid
+        {
+            return 0;
+        }
+
+        case 1: // 1 byte
+        {
+            return ch1;
+        }
+
+        case 2: // 2 bytes
+        {
+            int ch2 = jcontext_next(ctx);
+            if ((ch2 & 0xC0) != 0x80) return 0;
+            return (ch1 << 6) + ch2 - 0x3080;
+        }
+
+        case 3: // 3 bytes
+        {
+            int ch2 = jcontext_next(ctx);
+            int ch3 = jcontext_next(ctx);
+            uint32_t cp = (ch1 << 12) + (ch2 << 6) + ch3 - 0xE2080;
+
+            if ((ch2 & 0xC0) != 0x80) return 0;
+            if ((ch3 & 0xC0) != 0x80) return 0;
+            if (ch1 == 0xE0 && ch2 < 0xA0) return 0; // overlong
+            if (cp >= 0xD800 && cp <= 0xDFFF) return 0;
+            return cp;
+        }
+
+        case 4: // 4 bytes
+        {
+            int ch2 = jcontext_next(ctx);
+            int ch3 = jcontext_next(ctx);
+            int ch4 = jcontext_next(ctx);
+            uint32_t cp = (ch1 << 18) + (ch2 << 12) + (ch3 << 6) + ch4 - 0x3C82080;
+
+            if ((ch2 & 0xC0) != 0x80) return 0;
+            if ((ch3 & 0xC0) != 0x80) return 0;
+            if ((ch4 & 0xC0) != 0x80) return 0;
+            if (ch1 == 0xF0 && ch2 < 0x90) return 0; // overlong
+            if (cp >= 0xD800 && cp <= 0xDFFF) return 0; // surrogate pair
+            if (cp > 0x10FFFF) return 0; // > U+10FFFF
+            return cp;
+        }
+
+        default:
+            return 0;
+    }
+
+    return 0;
+}
+
+//------------------------------------------------------------------------------
 JINLINE void parse_whitespace( jcontext_t* ctx )
 {
     ctx->err->pline = ctx->err->line;
@@ -2413,60 +2479,17 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
 
                     default:
                     {
-                        int bytes = utf8_bytes(ch);
-                        switch(bytes)
+                        if (ch < 0x80)
                         {
-                            case 0:
-                                json_assert(JFALSE, "invalid utf8 sequence");
-                                break;
-
-                            case 1:
-                                jbuf_add(str, (char)ch);
-                                break;
-
-                            default:
-                            {
-                                const char* beg = str->ptr;
-
-                                /* loop
-
-                                jbuf_add(str, (char)ch);
-                                for ( size_t i = 0; i < bytes; i++)
-                                {
-                                    jbuf_add(str, (char)jcontext_next(ctx));
-                                }
-
-                                */
-
-                                // unroll the loop for better performance
-                                jbuf_add(str, (char)ch);
-                                switch(bytes)
-                                {
-                                    case 6:
-                                        jbuf_add(str, (char)jcontext_next(ctx));
-                                    case 5:
-                                        jbuf_add(str, (char)jcontext_next(ctx));
-                                    case 4:
-                                        jbuf_add(str, (char)jcontext_next(ctx));
-                                    case 3:
-                                        jbuf_add(str, (char)jcontext_next(ctx));
-                                    case 2:
-                                        jbuf_add(str, (char)jcontext_next(ctx));
-                                        break;
-
-                                    default:
-                                        json_assert(JFALSE, "invalid utf8 codepoint");
-                                        break;
-                                }
-
-                                // validate the codepoint
-                                uint32_t codepoint;
-                                const char* ptr = utf8_codepoint(beg, &codepoint);
-                                json_assert(codepoint > 0, "invalid utf8 codepoint");
-                                json_assert(ptr != NULL, "invalid utf8 sequence");
-                                break;
-                            }
+                            jbuf_add(str, (char)ch);
                         }
+                        else
+                        {
+                            uint32_t cp = jcontext_read_utf8(ctx);
+                            json_assert(cp != 0, "invalid utf8 codepoint");
+                            jbuf_add_unicode(str, cp);
+                        }
+                        break;
                     }
                 }
                 break;
