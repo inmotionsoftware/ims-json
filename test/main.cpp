@@ -22,6 +22,9 @@
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
     THE SOFTWARE.
 */
+
+#define NDEBUG 0
+
 #include <time.h>
 
 #include <libgen.h>
@@ -170,6 +173,43 @@ static void test_read()
 }
 
 //------------------------------------------------------------------------------
+static void test_compare()
+{
+    LOG_FUNC();
+
+
+    jerr_t err;
+
+    char buf[255];
+    get_fullpath("test.json", buf, sizeof(buf));
+
+    json_t j1;
+    json_init(&j1);
+    if (json_load_path(&j1, buf, &err) != 0)
+    {
+        jerr_fprint(stderr, &err);
+        exit(EXIT_FAILURE);
+    }
+
+    json_t j2;
+    json_init(&j2);
+    if (json_load_path(&j2, buf, &err) != 0)
+    {
+        jerr_fprint(stderr, &err);
+        exit(EXIT_FAILURE);
+    }
+
+    assert(json_compare(&j1, &j2) == 0);
+
+    jobj_add_str(json_root_obj(&j1), "not-equal", "anymore");
+
+    assert(json_compare(&j1, &j2) != 0);
+
+    json_destroy(&j1);
+    json_destroy(&j2);
+}
+
+//------------------------------------------------------------------------------
 static void test_construction()
 {
     LOG_FUNC();
@@ -313,6 +353,7 @@ typedef void (*test_func)(void);
 test_func TESTS[] =
 {
 //    test_read,
+    test_compare,
     test_construction,
     test_construction_cpp,
     test_reload,
