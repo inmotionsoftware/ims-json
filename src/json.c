@@ -2403,30 +2403,68 @@ JINLINE unsigned char char_to_hex(jcontext_t* ctx, int ch)
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_sign( jcontext_t* ctx )
+JINLINE int parse_sign( jcontext_t* ctx )
 {
-    int ch = jcontext_peek(ctx);
-    switch (ch)
+    int sign = 1;
+    switch (jcontext_peek(ctx))
     {
         case '-':
-            jcontext_next(ctx);
-            return -1;
-
+            sign = -sign;
         case '+':
             jcontext_next(ctx);
-            return 1;
+            break;
 
         default:
-            return 1;
+            break;
     }
+    return sign;
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
+/// fast implementation for 10^x power
+JINLINE jnum_t jpow10(int exp)
 {
-    jnum_t num = 0;
-    for ( int ch = jcontext_peek(ctx), cnt = 0; ch >= 0; ch = jcontext_next(ctx), ++cnt )
+    // Table giving binary powers of 10.
+    // Entry is 10^2^i.
+    // Used to convert decimal exponents into floating-point numbers.
+    static const jnum_t pow_10[] =
     {
+        10.,
+        100.,
+        1.0e4,
+        1.0e8,
+        1.0e16,
+        1.0e32,
+        1.0e64,
+        1.0e128,
+        1.0e256
+    };
+
+#if !NDEBUG
+    static const size_t p10len = sizeof(pow_10)/sizeof(pow_10[0]);
+    assert(exp >= p10len);
+#endif
+
+    jnum_t rt = 1;
+    const jnum_t* d;
+    for (d = pow_10; exp != 0; exp >>= 1, d += 1)
+    {
+        if (exp & 01) rt *= *d;
+    }
+    return rt;
+}
+
+//------------------------------------------------------------------------------
+JINLINE uint64_t parse_digits( jcontext_t* ctx, int* cnt )
+{
+    assert(ctx);
+    assert(cnt);
+
+    *cnt = 0;
+    uint64_t n = 0;
+    for ( size_t i = 0; i < 18; i++ )
+    {
+        int ch = jcontext_peek(ctx);
         switch (ch)
         {
             case '0':
@@ -2440,86 +2478,138 @@ JINLINE jnum_t parse_digitsp( jcontext_t* ctx, size_t* places)
             case '8':
             case '9':
             {
-                num = num*10 + (ch - '0');
+                ++*cnt;
+                n = n*10 + (ch - '0');
+                jcontext_next(ctx);
                 break;
             }
 
-            default:
-            {
-                *places = (size_t)pow(10.0, (double)cnt);
-                return num;
-            }
+            default: // done...
+                return n;
         }
     }
 
-    json_assert(JFALSE, "unexpected end of file");
-    return num;
+    // more than 18 numbers!
+    // Ignore the extras, since they can't affect the value anyway.
+    for ( int ch = jcontext_peek(ctx); ch != EOF; ch = jcontext_next(ctx) )
+    {
+        switch (ch)
+        {
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8':
+            case '9':
+                ++*cnt;
+                break;
+
+            default: // done...
+                return n;
+        }
+    }
+    return n;
 }
 
 //------------------------------------------------------------------------------
 JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
 {
-    jbool_t isint = JTRUE;
+    assert(ctx);
+    assert(_int);
 
-    // +/-
-    jnum_t sign = parse_sign(ctx);
+    // Largest possible base 10 exponent. Any exponent larger than this will
+    // already produce underflow or overflow, so there's no need to worry about
+    // additional digits.
+    static const int MAX_EXP = 511;
 
-    // whole number
-    size_t p = 0;
-    jnum_t num = parse_digitsp(ctx, &p);
+    uint64_t dec;       // decimal component
+    uint64_t fract;     // fractional component
+    int fexp;           // fractional expoonent
+    int sign;           // the sign
+    int ndigits;        // number of decimal places
 
-    // fraction
+    jnum_t num;         // the number
+
+    sign = parse_sign(ctx);
+    dec = parse_digits(ctx, &ndigits);
+
+    // check for leading zeros
+    json_assert(ndigits <= 1 || dec*10 >= jpow10(ndigits), "integer cannot have leading zeros");
+
+    // look for a fractional component
     switch (jcontext_peek(ctx))
     {
-        case '.':
+        case '.': // fraction
         {
-            isint = JFALSE;
             jcontext_next(ctx);
 
-            size_t places = 0;
-            jnum_t fract = parse_digitsp(ctx, &places);
-            json_assert(places > 1, "number truncated after '.'");
+            // parse the fraction digits
+            fract = parse_digits(ctx, &ndigits);
+            json_assert(ndigits > 0, "number truncated after '.'");
 
-            num += fract / places;
+            fexp = ndigits; // fractional exponent is the number of digits
             break;
         }
 
-        default:
+        default: // whole number, no fraction
+            fract = 0;
+            fexp = 0;
             break;
     }
 
-    // scientific notation
+    // check for scientific notation exponent (i.e. 1eXXX)
     switch (jcontext_peek(ctx))
     {
         case 'e':
         case 'E':
         {
-            isint = JFALSE;
             jcontext_next(ctx);
-            jnum_t esign = parse_sign(ctx);
 
-            size_t places = 0;
-            jnum_t digits = parse_digitsp(ctx, &places);
-            json_assert(places > 1, "number truncated after 'e'");
+            int expsign = parse_sign(ctx);
+            uint64_t e = parse_digits(ctx, &ndigits);
+            json_assert(ndigits > 0, "number truncated at 'e'");
 
-            num *= pow(10, esign*digits);
+            int exp = (int)e;
+            if (expsign < 0)
+            {
+                if (exp > MAX_EXP) return 0; // underflow, set to 0
+                num = dec / jpow10(exp) + fract/jpow10(fexp+exp);
+            }
+            else
+            {
+                json_assert(exp <= MAX_EXP, "numeric overflow");
+                num = dec * jpow10(exp) + ((exp>fexp) ? fract*jpow10(exp-fexp) : fract/jpow10(fexp-exp));
+            }
             break;
         }
 
-        default:
+        default: // no exponent
+        {
+            // Check for an int value, we can tall if there is no fraction-exponent.
+            // If it's an int apply the sign and return, no need for further
+            // processing.
+            if (fexp == 0)
+            {
+                *_int = (jint_t)(sign*dec);
+                json_assert(*_int<=LLONG_MAX && *_int>=LLONG_MIN, "integer overflow");
+                return *_int;
+            }
+            else
+            {
+                // calculate the fraction component and add to the decimal
+                num = dec + ( fract / jpow10(fexp) ) ;
+            }
             break;
+        }
     }
 
-    jnum_t d = sign * num;
-    json_assert(!isnan(d) && !isinf(d), "numeric overflow");
-
-    if (isint)
-    {
-        json_assert((num*10 >= p), "leading zero on integer value");
-        json_assert(d<=LLONG_MAX && d>=LLONG_MIN, "integer overflow");
-        *_int = (jint_t)d;
-    }
-    return d;
+    num *= sign; // apply the sign
+    json_assert(!isnan(num) && !isinf(num), "numeric overflow");
+    return num;
 }
 
 //------------------------------------------------------------------------------
@@ -2560,7 +2650,7 @@ JINLINE void parse_unicode2( jbuf_t* str, jcontext_t* ctx )
     unsigned int val2 = parse_unicode_hex(ctx);
 
     // validate the value
-    json_assert(val2 >= 0xDC00 && val2 <= 0xDFFF, "invalid utf8 codepoint: 0x%X", val2);
+    json_assert(val2 >= 0xDC00 && val2 <= 0xDFFF, "invalid utf8 codepoint in surrogate pair: 0x%X", val2);
     unsigned int unicode = ((val - 0xD800) << 10) + (val2 - 0xDC00) + 0x10000;
     json_assert(jbuf_add_unicode(str, unicode) == 0, "invalid utf8 codepoint: 0x%X", unicode);
 
@@ -2633,7 +2723,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                     case '\n':
                     case '\r':
                     case '\t':
-                    case '/':
+//                    case '/':
                         jbuf_add(str, '\0');
                         json_assert(JFALSE, "control character 0x%X found in string: '%s'", ch, str->ptr);
                         break;
