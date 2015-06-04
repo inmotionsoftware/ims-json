@@ -1241,7 +1241,7 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
         case JTYPE_FALSE:
         case JTYPE_NIL:
         case JTYPE_TRUE:
-            return 1;
+            return 0;
 
         case JTYPE_STR:
             return strcmp(json_get_str(j1, v1), json_get_str(j2, v2));
