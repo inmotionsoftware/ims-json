@@ -1229,6 +1229,82 @@ jarray_t json_get_array( json_t* jsn, jval_t val )
     return (jarray_t){.json=jsn, .idx=val.idx};
 }
 
+//------------------------------------------------------------------------------
+int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
+{
+    int tdif = jval_type(v1) != jval_type(v2);
+    if (tdif != 0) return tdif;
+    if (v1.idx == v2.idx) return 0;
+
+    switch(jval_type(v1))
+    {
+        case JTYPE_FALSE:
+        case JTYPE_NIL:
+        case JTYPE_TRUE:
+            return 1;
+
+        case JTYPE_STR:
+            return strcmp(json_get_str(jsn, v1), json_get_str(jsn, v2));
+
+        case JTYPE_NUM:
+        {
+            jnum_t n1 = json_get_num(jsn, v1);
+            jnum_t n2 = json_get_num(jsn, v2);
+            if (n1 < n2) return -1;
+            if (n1 > n2) return 1;
+            return 0;
+        }
+
+        case JTYPE_INT:
+            return (int)(json_get_int(jsn, v1) - json_get_int(jsn, v2));
+
+        case JTYPE_ARRAY:
+        {
+            jarray_t a1 = json_get_array(jsn, v1);
+            jarray_t a2 = json_get_array(jsn, v2);
+
+            size_t len1 = jarray_len(a1);
+            size_t len2 = jarray_len(a2);
+
+            if (len1 < len2) return -1;
+            if (len1 > len2) return 1;
+
+            for ( size_t i = 0; i < len1; i++ )
+            {
+                jval_t v31 = jarray_get(a1, i);
+                jval_t v32 = jarray_get(a2, i);
+                int c = json_compare_val(jsn, v31, v32);
+                if (c != 0) return c;
+            }
+            return 0;
+        }
+
+        case JTYPE_OBJ:
+        {
+            jobj_t o1 = json_get_obj(jsn, v1);
+            jobj_t o2 = json_get_obj(jsn, v2);
+
+            size_t len1 = jobj_len(o1);
+            size_t len2 = jobj_len(o2);
+
+            if (len1 < len2) return -1;
+            if (len1 > len2) return 1;
+
+            for ( size_t i = 0; i < len1; i++ )
+            {
+                jval_t v31 = jobj_get_val(o1, i);
+                jval_t v32 = jobj_get_val(o2, i);
+                int c = json_compare_val(jsn, v31, v32);
+                if (c != 0) return c;
+            }
+            return 0;
+        }
+
+        default:
+            return 0;
+    }
+}
+
 #pragma mark - jobj_t
 
 //------------------------------------------------------------------------------
@@ -2378,7 +2454,6 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
     // whole number
     size_t p = 0;
     jnum_t num = parse_digitsp(ctx, &p);
-    json_assert( (num == 0 && p == 10) || (num*10 >= p), "leading zero on integer value");
 
     // fraction
     switch (jcontext_peek(ctx))
@@ -2427,6 +2502,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
 
     if (isint)
     {
+        json_assert((num*10 >= p), "leading zero on integer value");
         json_assert(d<=LLONG_MAX && d>=LLONG_MIN, "integer overflow");
         *_int = (jint_t)d;
     }
@@ -2742,7 +2818,6 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
             // TODO support for integer types
             if (num == intval)
             {
-                json_assert(num<=LLONG_MAX && num>=LLONG_MIN, "integer overflow");
                 return (jval_t){JTYPE_INT, (uint32_t)json_add_int(jsn, intval)};
             }
             else

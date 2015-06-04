@@ -1235,6 +1235,18 @@ void json_destroy(json_t* jsn);
 #define json_root(JSN) (JSN)->root
 
 /*!
+    Compares one value to another in the same json doc. Undefined if either 
+    value is not part of the given json doc.
+    
+    @param jsn the json doc.
+    @param v1 the first value.
+    @param v2 the second value.
+    @return <0 if v1 is less then v2, >0 if v1 is greater then v2, or 0 if they 
+            are equal.
+*/
+int json_compare_val(json_t* jsn, jval_t v1, jval_t v2);
+
+/*!
     Retrieves the root object of the given json. 
     
     @details

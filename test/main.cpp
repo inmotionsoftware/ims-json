@@ -68,17 +68,6 @@ double time_call( F func )
 }
 
 //------------------------------------------------------------------------------
-static void jmem_print( jmem_stats_t* mem )
-{
-    assert(mem);
-    log_debug("[MEM][STRS ]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->strs.used), btomb(mem->strs.reserved));
-    log_debug("[MEM][NUMS ]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->nums.used), btomb(mem->nums.reserved));
-    log_debug("[MEM][OBJS ]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->objs.used), btomb(mem->objs.reserved));
-    log_debug("[MEM][ARRAY]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->arrays.used), btomb(mem->arrays.reserved));
-    log_debug("[MEM][TOTAL]: [used]: %0.2f MB [reserved]: %0.2f MB", btomb(mem->total.used), btomb(mem->total.reserved));
-}
-
-//------------------------------------------------------------------------------
 int json_load_mmap(json_t* jsn, const char* path, jerr_t* err)
 {
     int fd = open(path, O_RDONLY);
@@ -127,83 +116,6 @@ static void get_fullpath( const char* path, char* buf, size_t blen )
 }
 
 //------------------------------------------------------------------------------
-static void test_invalid_json()
-{
-    LOG_FUNC();
-
-    static const char* docs[] =
-    {
-        STRINGIFY
-        ({
-            "extra": "comma",
-        }),
-
-        STRINGIFY
-        ({
-            "missing": "comma"
-            "oops": true
-        }),
-
-        STRINGIFY
-        ({
-            "not-null": nil
-        }),
-
-        STRINGIFY
-        ({
-            "version": 1.0.25
-        }),
-
-        STRINGIFY
-        ({
-            "number": 1e.05
-        }),
-
-        STRINGIFY
-        ({
-            "key":
-        }),
-
-        STRINGIFY
-        ({
-            "array": [1,2,3}
-        }),
-
-        STRINGIFY
-        ({
-            true : "false"
-        }),
-
-        STRINGIFY
-        ({
-            "utf8" : "\uXYZ"
-        }),
-
-        STRINGIFY
-        ({
-            "utf8" : "\U1234"
-        }),
-
-
-        "",
-    };
-
-    static const size_t ndocs = sizeof(docs)/sizeof(docs[0]);
-
-    for ( size_t i = 0; i < ndocs; i++ )
-    {
-        const char* doc = docs[i];
-        json_t jsn;
-        json_init(&jsn);
-
-        jerr_t err;
-        int rt = json_load_buf(&jsn, doc, strlen(doc), &err);
-        assert(rt != 0); // must error out!!!
-        json_destroy(&jsn);
-    }
-}
-
-//------------------------------------------------------------------------------
 static void test_reload()
 {
     LOG_FUNC();
@@ -248,9 +160,6 @@ static void test_read()
         exit(EXIT_FAILURE);
     }
 
-    jmem_stats_t mem = json_get_mem(jsn);
-    jmem_print(&mem);
-
     assert(jsn);
     if (jsn->strmap.slen < 50)
     {
@@ -271,6 +180,7 @@ static void test_construction()
         jobj_add_bool(root, "true", true);
         jobj_add_bool(root, "false", false);
         jobj_add_nil(root, "nil");
+        jobj_add_int(root, "int", 1);
         jobj_add_num(root, "num", 3.14);
         jobj_add_str(root, "string", "string");
         jobj_t child = jobj_add_obj(root, "obj");
@@ -296,6 +206,7 @@ static void test_construction()
         }
     }
 
+    assert( jval_is_int(jobj_find(root, "int")) );
     assert( jval_is_true(jobj_find(root, "true")) );
     assert( jval_is_false(jobj_find(root, "false")) );
     assert( jval_is_bool(jobj_find(root, "true")) );
@@ -351,6 +262,14 @@ static void test_construction()
 }
 
 //------------------------------------------------------------------------------
+//static void test_cpp_val( const obj& root, const std::string& key, const const_val& val )
+//{
+//    auto it = root.find(key);
+//    assert(it != root.end());
+//    assert((*it).second == val);
+//}
+
+//------------------------------------------------------------------------------
 static void test_construction_cpp()
 {
     LOG_FUNC();
@@ -362,6 +281,7 @@ static void test_construction_cpp()
         root["false"] = false;
         root["nil"] = nullptr;
         root["num"] = 3.14;
+        root["int"] = 1;
         root["string"] = "string";
         root["child"].add_obj("key", "child");
         root["array"] = val::array
@@ -379,6 +299,9 @@ static void test_construction_cpp()
         };
     }
 
+//    test_cpp_val(root, "true", true);
+//    test_cpp_val(root, "false", false);
+
     auto it = root.find("string");
     assert( it != root.end() && (*it).second.is_str());
     std::cout << jsn << std::endl;
@@ -389,11 +312,10 @@ typedef void (*test_func)(void);
 //------------------------------------------------------------------------------
 test_func TESTS[] =
 {
-    test_read,
+//    test_read,
     test_construction,
     test_construction_cpp,
     test_reload,
-    test_invalid_json
 };
 static const size_t TEST_LEN = sizeof(TESTS)/sizeof(TESTS[0]);
 

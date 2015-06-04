@@ -115,8 +115,9 @@ namespace ims
             void operator= ( const std::string& str ) { jobj_add_strl(m_obj, m_key, str.c_str(), str.length()); }
             void operator= ( const char* str ) { jobj_add_str(m_obj, m_key, str); }
             void operator= ( jnum_t n ) { jobj_add_num(m_obj, m_key, n); }
-            void operator= ( int i ) { jobj_add_num(m_obj, m_key, i); }
-            void operator= ( size_t i ) { jobj_add_num(m_obj, m_key, i); }
+            void operator= ( int i ) { jobj_add_int(m_obj, m_key, i); }
+            void operator= ( size_t i ) { jobj_add_int(m_obj, m_key, i); }
+            void operator= ( jint_t i ) { jobj_add_int(m_obj, m_key, i); }
             void operator= ( bool b ) { jobj_add_bool(m_obj, m_key, b); }
             void operator= ( std::nullptr_t ) { jobj_add_nil(m_obj, m_key); }
             void operator= ( const class val& v );
@@ -206,9 +207,27 @@ namespace ims
             @param n the int value.
             @return a reference to the object.
         */
-        obj& add ( const char* key, int n )
+        obj& add ( const char* key, int n ) { return add(key, (jint_t)n); }
+
+        /**
+            Adds an integer to this object.
+            
+            @param key the key.
+            @param n the int value.
+            @return a reference to the object.
+        */
+        obj& add ( const char* key, size_t n ) { return add(key, (jint_t)n); }
+
+        /**
+            Adds an integer to this object.
+            
+            @param key the key.
+            @param n the int value.
+            @return a reference to the object.
+        */
+        obj& add ( const char* key, jint_t n )
         {
-            jobj_add_num(m_obj, key, n);
+            jobj_add_int(m_obj, key, n);
             return *this;
         }
 
@@ -258,7 +277,7 @@ namespace ims
             @return an iterator pointing to the value, or an iterator equal to 
                     the end iterator if not found.
         */
-        iterator find( const std::string& key )
+        iterator find( const std::string& key ) const
         {
             size_t idx = jobj_findl_idx(m_obj, key.c_str(), key.length());
             if (idx == SIZE_MAX)
@@ -391,19 +410,16 @@ namespace ims
 
         bool empty() const { return jarray_len(m_array) == 0; }
 
-        array& push_back( int n )
+        array& push_back( jint_t n )
         {
-            jarray_add_num(m_array, n);
+            jarray_add_int(m_array, n);
             return *this;
         }
+
+        array& push_back( int n ) { return push_back((jint_t)n); }
+        array& push_back( size_t n ) { return push_back((jint_t)n); }
 
         array& push_back( jnum_t n )
-        {
-            jarray_add_num(m_array, n);
-            return *this;
-        }
-
-        array& push_back( size_t n )
         {
             jarray_add_num(m_array, n);
             return *this;
@@ -615,9 +631,19 @@ namespace ims
             : m_type(b ? JTYPE_TRUE : JTYPE_FALSE)
         {}
 
+        val ( size_t n )
+            : m_type(JTYPE_INT)
+            , m_int(n)
+        {}
+
         val ( int n )
-            : m_type(JTYPE_NUM)
-            , m_num(n)
+            : m_type(JTYPE_INT)
+            , m_int(n)
+        {}
+
+        val ( jint_t n )
+            : m_type(JTYPE_INT)
+            , m_int(n)
         {}
 
         val ( jnum_t n )
@@ -705,6 +731,10 @@ namespace ims
                     new (this) val(mv.m_num);
                     break;
 
+                case JTYPE_INT:
+                    new (this) val(mv.m_int);
+                    break;
+
                 case JTYPE_NIL:
                     new (this) val();
 
@@ -743,6 +773,10 @@ namespace ims
                     new (this) val(v.m_num);
                     break;
 
+                case JTYPE_INT:
+                    new (this) val(v.m_int);
+                    break;
+
                 case JTYPE_NIL:
                     new (this) val();
                     break;
@@ -768,6 +802,7 @@ namespace ims
         {
             std::string m_str;
             jnum_t m_num;
+            jint_t m_int;
             val::array m_array;
             val::obj m_obj;
         };
@@ -804,6 +839,10 @@ namespace ims
 
             case JTYPE_NUM:
                 push_back(v.m_num);
+                break;
+
+            case JTYPE_INT:
+                push_back(v.m_int);
                 break;
 
             case JTYPE_NIL:
@@ -853,6 +892,10 @@ namespace ims
                 break;
             }
 
+            case JTYPE_INT:
+                this->operator=(v.m_int);
+                break;
+
             case JTYPE_NUM:
                 this->operator=(v.m_num);
                 break;
@@ -889,11 +932,13 @@ namespace ims
         bool is_nil() const { return jval_is_nil(m_val); }
         bool is_str() const { return jval_is_str(m_val); }
         bool is_num() const { return jval_is_num(m_val); }
+        bool is_int() const { return jval_is_int(m_val); }
         bool is_obj() const { return jval_is_obj(m_val); }
         bool is_array() const { return jval_is_array(m_val); }
         bool operator! ( ) const { return is_nil(); }
 
-        operator int() const { return (int)json_get_num(m_jsn, m_val); }
+        operator int() const { return (int)json_get_int(m_jsn, m_val); }
+        operator jint_t() const { return json_get_int(m_jsn, m_val); }
         operator jnum_t() const { return json_get_num(m_jsn, m_val); }
         operator const char*() const { return json_get_str(m_jsn, m_val); }
         operator bool() const { return json_get_bool(m_jsn, m_val); }
@@ -904,6 +949,15 @@ namespace ims
             const char* cstr =  json_get_str(m_jsn, m_val);
             return (cstr) ? cstr : std::string();
         }
+
+        int compare( const const_val& val ) const { return json_compare_val(m_jsn, m_val, val.m_val); }
+
+        bool operator== ( const const_val& val ) const { return compare(val) == 0; }
+        bool operator!= ( const const_val& val ) const { return compare(val) != 0; }
+        bool operator< ( const const_val& val ) const { return compare(val) < 0; }
+        bool operator<= ( const const_val& val ) const { return compare(val) <= 0; }
+        bool operator>= ( const const_val& val ) const { return compare(val) >= 0; }
+        bool operator> ( const const_val& val ) const { return compare(val) > 0; }
 
         int type() const { return jval_type(m_val); }
 
