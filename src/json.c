@@ -884,8 +884,7 @@ JINLINE size_t jmap_find_hash(jmap_t* map, jhash_t hash, const char* cstr, size_
         {
             const char* chars = (str->len > BUF_SIZE) ? str->str.chars : str->str.buf;
             assert(chars);
-
-            if (strncmp(chars, cstr, slen) == 0)
+            if (memcmp(chars, cstr, slen) == 0)
             {
                 return idx;
             }
@@ -1230,6 +1229,21 @@ jarray_t json_get_array( json_t* jsn, jval_t val )
 }
 
 //------------------------------------------------------------------------------
+int jstr_cmp( jstr_t* s1, jstr_t* s2 )
+{
+    const char* b1 = s1->len > BUF_SIZE ? s1->str.chars : s1->str.buf;
+    const char* b2 = s2->len > BUF_SIZE ? s2->str.chars : s2->str.buf;
+    size_t len = jmins(s1->len, s2->len);
+    int rt = memcmp(b1, b2, len);
+    if (rt == 0 && s1->len != s2->len)
+    {
+        if (s1->len<s2->len) return -1;
+        if (s1->len>s2->len) return 1;
+    }
+    return rt;
+}
+
+//------------------------------------------------------------------------------
 JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
 {
     int tdif = jval_type(v1) != jval_type(v2);
@@ -1244,7 +1258,11 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
             return 0;
 
         case JTYPE_STR:
-            return strcmp(json_get_str(j1, v1), json_get_str(j2, v2));
+        {
+            jstr_t* s1 = jmap_get_str(&j1->strmap, v1.idx);
+            jstr_t* s2 = jmap_get_str(&j2->strmap, v2.idx);
+            return jstr_cmp(s1, s2);
+        }
 
         case JTYPE_NUM:
         {
@@ -1445,10 +1463,13 @@ JINLINE size_t jobj_add_keyl( jobj_t o, const char* key, size_t klen )
     kv->val.type = JTYPE_NIL;
     kv->val.idx = 0;
 
-    if (klen < sizeof(kv->key.kstr) )
+    static const size_t kstrlen = sizeof(kv->key.kstr);
+
+    if (klen < kstrlen)
     {
-        kv->key.kidx = 0;
-        strncpy(kv->key.kstr, key, sizeof(kv->key.kstr));
+        assert ( sizeof(kv->key.kidx) == kstrlen );
+        kv->key.kidx = 0; // zero-out
+        memcpy(kv->key.kstr, key, klen);
         kv->val.type |= ~JTYPE_MASK;
     }
     else
@@ -1564,7 +1585,7 @@ JINLINE size_t jobj_find_shortstr( jobj_t obj, const char* key, size_t klen )
         if ( (kv->val.type & ~JTYPE_MASK) == 0 )
             continue;
 
-        if (strcmp(kv->key.kstr, key) == 0)
+        if (memcmp(kv->key.kstr, key, klen) == 0)
         {
             // found it!
             return i;
