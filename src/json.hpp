@@ -529,6 +529,14 @@ namespace ims
         bool operator!() const { return empty(); }
         operator bool () const { return !empty(); }
 
+        int compare( const json& j ) const { return json_compare(m_jsn, j.m_jsn); }
+        bool operator== (const json& j) const { return compare(j) == 0; }
+        bool operator!= (const json& j) const { return compare(j) != 0; }
+        bool operator>= (const json& j) const { return compare(j) >= 0; }
+        bool operator> (const json& j) const { return compare(j) > 0; }
+        bool operator< (const json& j) const { return compare(j) < 0; }
+        bool operator<= (const json& j) const { return compare(j) <= 0; }
+
         /**
             Tests whether or not this json document is empty or null.
             @return true if this json document is empty or null.

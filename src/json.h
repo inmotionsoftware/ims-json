@@ -1247,6 +1247,16 @@ void json_destroy(json_t* jsn);
 int json_compare_val(json_t* jsn, jval_t v1, jval_t v2);
 
 /*!
+    Compares two json docs to one another.
+    
+    @param j1 the first json doc.
+    @param j2 the second json doc.
+    @return <0 if j1 is less then j2, >0 if j1 is greater then j2, or 0 if they
+            are equal.
+*/
+int json_compare( json_t* j1, json_t* j2 );
+
+/*!
     Retrieves the root object of the given json. 
     
     @details

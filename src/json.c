@@ -1230,11 +1230,11 @@ jarray_t json_get_array( json_t* jsn, jval_t val )
 }
 
 //------------------------------------------------------------------------------
-int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
+JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
 {
     int tdif = jval_type(v1) != jval_type(v2);
     if (tdif != 0) return tdif;
-    if (v1.idx == v2.idx) return 0;
+    if (j1 == j2 && v1.idx == v2.idx) return 0;
 
     switch(jval_type(v1))
     {
@@ -1244,24 +1244,24 @@ int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
             return 1;
 
         case JTYPE_STR:
-            return strcmp(json_get_str(jsn, v1), json_get_str(jsn, v2));
+            return strcmp(json_get_str(j1, v1), json_get_str(j2, v2));
 
         case JTYPE_NUM:
         {
-            jnum_t n1 = json_get_num(jsn, v1);
-            jnum_t n2 = json_get_num(jsn, v2);
+            jnum_t n1 = json_get_num(j1, v1);
+            jnum_t n2 = json_get_num(j2, v2);
             if (n1 < n2) return -1;
             if (n1 > n2) return 1;
             return 0;
         }
 
         case JTYPE_INT:
-            return (int)(json_get_int(jsn, v1) - json_get_int(jsn, v2));
+            return (int)(json_get_int(j1, v1) - json_get_int(j2, v2));
 
         case JTYPE_ARRAY:
         {
-            jarray_t a1 = json_get_array(jsn, v1);
-            jarray_t a2 = json_get_array(jsn, v2);
+            jarray_t a1 = json_get_array(j1, v1);
+            jarray_t a2 = json_get_array(j2, v2);
 
             size_t len1 = jarray_len(a1);
             size_t len2 = jarray_len(a2);
@@ -1273,7 +1273,7 @@ int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
             {
                 jval_t v31 = jarray_get(a1, i);
                 jval_t v32 = jarray_get(a2, i);
-                int c = json_compare_val(jsn, v31, v32);
+                int c = _json_compare_val(j1, v31, j2, v32);
                 if (c != 0) return c;
             }
             return 0;
@@ -1281,8 +1281,8 @@ int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
 
         case JTYPE_OBJ:
         {
-            jobj_t o1 = json_get_obj(jsn, v1);
-            jobj_t o2 = json_get_obj(jsn, v2);
+            jobj_t o1 = json_get_obj(j1, v1);
+            jobj_t o2 = json_get_obj(j2, v2);
 
             size_t len1 = jobj_len(o1);
             size_t len2 = jobj_len(o2);
@@ -1294,7 +1294,7 @@ int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
             {
                 jval_t v31 = jobj_get_val(o1, i);
                 jval_t v32 = jobj_get_val(o2, i);
-                int c = json_compare_val(jsn, v31, v32);
+                int c = _json_compare_val(j1, v31, j2, v32);
                 if (c != 0) return c;
             }
             return 0;
@@ -1303,6 +1303,19 @@ int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
         default:
             return 0;
     }
+}
+
+//------------------------------------------------------------------------------
+int json_compare( json_t* j1, json_t* j2 )
+{
+    if (j1 == j2) return 0;
+    return _json_compare_val(j1, json_root(j1), j2, json_root(j2));
+}
+
+//------------------------------------------------------------------------------
+int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
+{
+    return _json_compare_val(jsn, v1, jsn, v2);
 }
 
 #pragma mark - jobj_t
