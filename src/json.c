@@ -2620,7 +2620,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
         if (expsign < 0) // negative exponent
         {
             if (exp > MAX_EXP) return 0; // underflow, set to 0
-            num = dec / jpow10(exp) + fract/jpow10(fexp+exp);
+            num = (dec + fract/jpow10(fexp)) / jpow10(exp);
         }
         else // positive
         {
