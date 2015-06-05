@@ -1923,6 +1923,14 @@ JINLINE void jbuf_add( jbuf_t* buf, char ch )
 }
 
 //------------------------------------------------------------------------------
+JINLINE void jbuf_end_str( jbuf_t* buf )
+{
+    assert(buf);
+    jbuf_reserve(buf, 1);
+    buf->ptr[buf->len] = '\0';
+}
+
+//------------------------------------------------------------------------------
 JINLINE int jbuf_add_unicode(jbuf_t* str, int32_t codepoint )
 {
     if (codepoint == 0)
@@ -2461,11 +2469,6 @@ JINLINE jnum_t jpow10(int exp)
         1.0e256
     };
 
-#if !NDEBUG
-    static const size_t p10len = sizeof(pow_10)/sizeof(pow_10[0]);
-    assert(exp >= p10len);
-#endif
-
     jnum_t rt = 1;
     const jnum_t* d;
     for (d = pow_10; exp != 0; exp >>= 1, d += 1)
@@ -2550,16 +2553,25 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
     uint64_t dec;       // decimal component
     uint64_t fract;     // fractional component
     int fexp;           // fractional expoonent
-    int sign;           // the sign
-    int ndigits;        // number of decimal places
+    int sign;           // the sign +/-
+    int ndigits;        // number of digits in our number
+
+    int exp = 0;        // exponent
+    int expsign = 0;    // exponent sign +/-
 
     jnum_t num;         // the number
 
     sign = parse_sign(ctx);
+    int first = jcontext_peek(ctx);
     dec = parse_digits(ctx, &ndigits);
 
     // check for leading zeros
-    json_assert(ndigits <= 1 || dec*10 >= jpow10(ndigits), "integer cannot have leading zeros");
+    json_assert(ndigits > 0, "invalid number");
+    json_assert(ndigits <= 1 || first != '0', "number cannot have leading zeros");
+
+    // we overflowed our digits! We will have to use an exponent to represent
+    // the whole number.
+    if (ndigits > 18) exp = ndigits-18;
 
     // look for a fractional component
     switch (jcontext_peek(ctx))
@@ -2590,41 +2602,47 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
         {
             jcontext_next(ctx);
 
-            int expsign = parse_sign(ctx);
+            expsign = parse_sign(ctx);
             uint64_t e = parse_digits(ctx, &ndigits);
             json_assert(ndigits > 0, "number truncated at 'e'");
 
-            int exp = (int)e;
-            if (expsign < 0)
-            {
-                if (exp > MAX_EXP) return 0; // underflow, set to 0
-                num = dec / jpow10(exp) + fract/jpow10(fexp+exp);
-            }
-            else
-            {
-                json_assert(exp <= MAX_EXP, "numeric overflow");
-                num = dec * jpow10(exp) + ((exp>fexp) ? fract*jpow10(exp-fexp) : fract/jpow10(fexp-exp));
-            }
+            exp += (int)e;
             break;
         }
 
         default: // no exponent
-        {
-            // Check for an int value, we can tall if there is no fraction-exponent.
-            // If it's an int apply the sign and return, no need for further
-            // processing.
-            if (fexp == 0)
-            {
-                *_int = (jint_t)(sign*dec);
-                json_assert(*_int<=LLONG_MAX && *_int>=LLONG_MIN, "integer overflow");
-                return *_int;
-            }
-            else
-            {
-                // calculate the fraction component and add to the decimal
-                num = dec + ( fract / jpow10(fexp) ) ;
-            }
             break;
+    }
+
+    // did we have an exponent???
+    if (exp != 0)
+    {
+        if (expsign < 0) // negative exponent
+        {
+            if (exp > MAX_EXP) return 0; // underflow, set to 0
+            num = dec / jpow10(exp) + fract/jpow10(fexp+exp);
+        }
+        else // positive
+        {
+            json_assert(exp <= MAX_EXP, "numeric overflow");
+            num = dec * jpow10(exp) + ((exp>fexp) ? fract*jpow10(exp-fexp) : fract/jpow10(fexp-exp));
+        }
+    }
+    else
+    {
+        // Check for an int value, we can tall if there is no fraction-exponent.
+        // If it's an int apply the sign and return, no need for further
+        // processing.
+        if (fexp == 0) // whole number
+        {
+            *_int = (jint_t)(sign*dec);
+            json_assert(*_int<=LLONG_MAX && *_int>=LLONG_MIN, "integer overflow");
+            return *_int;
+        }
+        else // fractional number
+        {
+            // calculate the fraction component and add to the decimal
+            num = dec + ( fract / jpow10(fexp) ) ;
         }
     }
 
@@ -2734,7 +2752,8 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                 switch (ch)
                 {
                     case '\0':
-                        jbuf_add(str, (char)ch);
+                        //jbuf_add(str, (char)ch);
+                        jbuf_end_str(str);
                         json_assert(JFALSE, "NUL character in string: '%s\\0'", str->ptr);
                         break;
 
@@ -2744,8 +2763,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
                     case '\n':
                     case '\r':
                     case '\t':
-//                    case '/':
-                        jbuf_add(str, '\0');
+                        jbuf_end_str(str);
                         json_assert(JFALSE, "control character 0x%X found in string: '%s'", ch, str->ptr);
                         break;
 
@@ -2754,7 +2772,7 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
 
                     case '"':
                         jcontext_next(ctx);
-                        jbuf_add(str, '\0');
+                        jbuf_end_str(str);
                         return;
 
                     default:
