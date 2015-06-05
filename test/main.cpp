@@ -23,7 +23,10 @@
     THE SOFTWARE.
 */
 
-#define NDEBUG 0
+#if defined(NDEBUG)
+    #undef NDEBUG
+    #define NDEBUG 0
+#endif
 
 #include <time.h>
 
@@ -119,6 +122,62 @@ static void get_fullpath( const char* path, char* buf, size_t blen )
 }
 
 //------------------------------------------------------------------------------
+static void test_numbers()
+{
+    LOG_FUNC();
+    std::string jstr;
+
+    std::vector<std::string> nums =
+    {
+        "12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+        "1.5e-5",
+        "1.9e6",
+        "1000000000",
+        "1.84594059860598e307",
+        "7.094809809e307",
+        "1.2094850986e-308",
+        "-12",
+        "1e0",
+        "209098.098098098e-3",
+        "1e-500",
+        "1",
+        "-3.098098e6"
+    };
+
+    jstr += "[";
+    for ( auto it = nums.begin(), end = nums.end(); it != end; ++it )
+    {
+        jstr += (*it);
+        jstr += ",";
+    }
+    jstr.pop_back();
+    jstr += "]";
+
+//    std::cout << jstr << std::endl;
+
+    jerr_t err;
+
+    json_t jsn;
+    json_init(&jsn);
+    if (json_load_buf(&jsn, jstr.c_str(), jstr.size(), &err) != 0)
+    {
+        jerr_fprint(stderr, &err);
+        exit(EXIT_FAILURE);
+    }
+
+    jarray_t array = json_root_array(&jsn);
+    for ( size_t i = 0; i < nums.size(); i++ )
+    {
+        const std::string& str = nums[i];
+        double d = strtod(str.c_str(), NULL);
+        jnum_t n = jarray_get_num(array, i);
+        assert(n == d);
+    }
+
+    json_destroy(&jsn);
+}
+
+//------------------------------------------------------------------------------
 static void test_reload()
 {
     LOG_FUNC();
@@ -131,7 +190,7 @@ static void test_reload()
     const char* json_doc = STRINGIFY
     ({
         "string":"str",
-        "int": 1
+        "num": 1
     });
 
     jerr_t err;
@@ -176,7 +235,6 @@ static void test_read()
 static void test_compare()
 {
     LOG_FUNC();
-
 
     jerr_t err;
 
@@ -352,11 +410,12 @@ typedef void (*test_func)(void);
 //------------------------------------------------------------------------------
 test_func TESTS[] =
 {
-//    test_read,
+    test_read,
     test_compare,
     test_construction,
     test_construction_cpp,
     test_reload,
+    test_numbers
 };
 static const size_t TEST_LEN = sizeof(TESTS)/sizeof(TESTS[0]);
 
