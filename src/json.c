@@ -434,7 +434,7 @@ JINLINE const char* utf8_codepoint( const char* str, uint32_t* _codepoint )
         case 2: // 2 bytes
         {
             int ch2 = *str++ & 0xFF;
-            if ((ch1 & 0xC0) != 0x80) return NULL;
+            if ((ch2 & 0xC0) != 0x80) return NULL;
             *_codepoint = (ch1 << 6) + ch2 - 0x3080;
             return str;
         }
@@ -943,6 +943,10 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
                 jprint_const(ctx, "\\n");
                 break;
 
+            case '\b':
+                jprint_const(ctx, "\\b");
+                break;
+
             case '\f':
                 jprint_const(ctx, "\\f");
                 break;
@@ -952,6 +956,13 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
                 break;
 
             case '/':
+                jprint_const(ctx, "\\/");
+                break;
+
+            case '\0':
+                jprint_const(ctx, "\\u0000");
+                break;
+
             default:
             {
                 if (!ctx->esc_uni)
@@ -966,11 +977,28 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
 
                 if (next != str)
                 {
-                    jprint_fmt(ctx, "\\u%X", codepoint);
-                    str = next;
+                    if (codepoint < 0x80)
+                    {
+                        jprint_char(ctx, (char)codepoint);
+                    }
+                    else if (codepoint < 0x10000)
+                    {
+                        jprint_fmt(ctx, "\\u%04X", codepoint);
+                    }
+                    else
+                    {
+                        int32_t first, last;
+                        codepoint -= 0x10000;
+                        first = 0xD800 | ((codepoint & 0xffc00) >> 10);
+                        last = 0xDC00 | (codepoint & 0x3ff);
+                        jprint_fmt(ctx, "\\u%04X\\u%04X", first, last);
+                    }
+                    assert(next>str);
+                    str = next-1;
                 }
                 else
                 {
+                    // TODO: this should be an error!!
                     jprint_char(ctx, (char)ch);
                 }
                 break;

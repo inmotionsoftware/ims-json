@@ -136,6 +136,13 @@ static void test_numbers()
         "1.84594059860598e307",
         "7.094809809e307",
         "1.2094850986e-308",
+        "0",
+        "-0",
+        "1",
+        "134217727",
+        "-134217727",
+        "123.456789",
+        "98",
         "-12",
         "1e0",
         "209098.098098098e-3",
@@ -164,6 +171,8 @@ static void test_numbers()
         jerr_fprint(stderr, &err);
         exit(EXIT_FAILURE);
     }
+
+//    json_print_file(&jsn, JPRINT_PRETTY, stdout);
 
     jarray_t array = json_root_array(&jsn);
     for ( size_t i = 0; i < nums.size(); i++ )
