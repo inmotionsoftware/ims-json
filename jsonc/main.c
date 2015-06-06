@@ -236,6 +236,11 @@ int main(int argc, char* argv[])
                 jobj_add_int(arrays, "used", mem.arrays.used);
                 jobj_add_int(arrays, "reserved", mem.arrays.reserved);
             }
+            jobj_t total = jobj_add_obj(root, "total");
+            {
+                jobj_add_int(total, "used", mem.total.used);
+                jobj_add_int(total, "reserved", mem.total.reserved);
+            }
         }
         json_print_file(&jsn, JPRINT_PRETTY, stderr);
         putc('\n', stderr);
