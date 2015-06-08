@@ -110,7 +110,7 @@ better off using a stream parser or wrapping ims-json with some jni calls...
 ### Runtime performance
 library | citylots.json| magic.json|
 --------|-------------:|----------:|
-ims-json| 1.94 secs    | 0.86 secs |
+ims-json| 1.846 secs   | 0.75 secs |
 jansson | 10.04 secs   | 2.88 secs |
 cson    | 22.40 secs   | 4.84 secs |
 gson    | 34.12 secs   | 3.38 secs |
@@ -119,7 +119,7 @@ gson    | 34.12 secs   | 3.38 secs |
 ### Memory Usage
 library | citylots.json | magic.json |
 --------|--------------:|-----------:|
-ims-json| 118.27 MB     | 53.57 MB   |
+ims-json| 118.22 MB     | 49.11 MB   |
 jansson | 993.12 MB     | 140.39 MB  |
 cson    | 828.15 MB     | 158.69 MB  |
 gson    | 1,970.36 MB   | 304.38 MB  |

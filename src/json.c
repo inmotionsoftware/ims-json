@@ -60,6 +60,9 @@ const char JVER[32] = "0.9.0.1";
 #define MAX_VAL_IDX 268435456 // 2^28
 #define MAX_KEY_IDX UINT32_MAX
 
+#define MAX_JSHORT 134217727 // 2^27-1
+#define MIN_JSHORT -134217727 // -2^27-1
+
 #define JMAP_MAX_LOADFACTOR 0.8f
 #define JMAP_IDEAL_LOADFACTOR 0.3f
 
@@ -222,6 +225,19 @@ JINLINE void* jrealloc( void* ptr, size_t s )
 //#define jmaxs(A,B) ({__typeof__(A) a = A; __typeof__(B) b = B; (a>b)?a:b; })
 //#define jsnprintf(BUF, BLEN, FMT, ...) { snprintf(BUF, BLEN, FMT, ## __VA_ARGS__); BUF[BLEN-1] = '\0'; }
 //#define json_assert(A, STR, ...) { if (!(A)) {jsnprintf(ctx->err->msg, sizeof(ctx->err->msg), "" STR, ## __VA_ARGS__ ); json_do_err(ctx); } }
+
+//------------------------------------------------------------------------------
+uint32_t jint_to_short( jint_t num )
+{
+    assert(MIN_JSHORT <= num && num <= MAX_JSHORT);
+    return (uint32_t)(num<0 ? (-num|0x8000000) : num);
+}
+
+//------------------------------------------------------------------------------
+jint_t jshort_to_int(uint32_t val)
+{
+    return (val & 0x8000000) ? -(jint_t)(val&0x7FFFFFF) : val;
+}
 
 //------------------------------------------------------------------------------
 JINLINE size_t jmins( size_t m1, size_t m2 ) { return (m1<m2) ? m1 : m2; }
@@ -1026,8 +1042,12 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
             jprint_fmt(ctx, "%lld", json_get_int(jsn, val));
             break;
 
+        case JTYPE_SHORT:
+            jprint_fmt(ctx, "%d", jshort_to_int(val.idx));
+            break;
+
         case JTYPE_NUM:
-            jprint_fmt(ctx, "%g", json_get_num(jsn, val));
+            jprint_fmt(ctx, "%.17g", json_get_num(jsn, val));
             break;
 
         case JTYPE_ARRAY:
@@ -1038,13 +1058,18 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
             _jobj_print(ctx, json_get_obj(jsn, val), depth);
             break;
 
-        case JTYPE_TRUE:
-            jprint_const(ctx, "true");
+        case JTYPE_BOOL:
+        {
+            if (json_get_bool(jsn, val))
+            {
+                jprint_const(ctx, "true");
+            }
+            else
+            {
+                jprint_const(ctx, "false");
+            }
             break;
-
-        case JTYPE_FALSE:
-            jprint_const(ctx, "false");
-            break;
+        }
 
         default:
             assert(JFALSE); // unknown type!!!
@@ -1205,6 +1230,9 @@ jint_t json_get_int( json_t* jsn, jval_t val )
         case JTYPE_INT:
             return jsn->ints.ptr[val.idx];
 
+        case JTYPE_SHORT:
+            return jshort_to_int(val.idx);
+
         default:
             return 0;
     }
@@ -1221,6 +1249,9 @@ jnum_t json_get_num( json_t* jsn, jval_t val )
         case JTYPE_INT:
             return (jnum_t)jsn->ints.ptr[val.idx];
 
+        case JTYPE_SHORT:
+            return jshort_to_int(val.idx);
+
         default:
             return 0;
     }
@@ -1231,10 +1262,9 @@ jbool_t json_get_bool( json_t* jsn, jval_t val )
 {
     switch (jval_type(val))
     {
-        case JTYPE_TRUE:
-            return JTRUE;
+        case JTYPE_BOOL:
+            return val.idx?JTRUE:JFALSE;
 
-        case JTYPE_FALSE:
         default:
             return JFALSE;
     }
@@ -1280,10 +1310,11 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
 
     switch(jval_type(v1))
     {
-        case JTYPE_FALSE:
         case JTYPE_NIL:
-        case JTYPE_TRUE:
             return 0;
+
+        case JTYPE_BOOL:
+            return (v1.idx-v2.idx);
 
         case JTYPE_STR:
         {
@@ -1300,6 +1331,9 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
             if (n1 > n2) return 1;
             return 0;
         }
+
+        case JTYPE_SHORT:
+            return (int)(jshort_to_int(v1.idx)-jshort_to_int(v2.idx));
 
         case JTYPE_INT:
             return (int)(json_get_int(j1, v1) - json_get_int(j2, v2));
@@ -1542,8 +1576,16 @@ void jobj_add_num( jobj_t obj, const char* key, jnum_t num )
 void jobj_add_int( jobj_t obj, const char* key, jint_t num )
 {
     assert(key);
-    size_t idx = json_add_int(jobj_get_json(obj), num);
-    jobj_add_kv(obj, key, JTYPE_INT, idx);
+
+    if (MIN_JSHORT <= num && num <= MAX_JSHORT)
+    {
+        jobj_add_kv(obj, key, JTYPE_SHORT, jint_to_short(num));
+    }
+    else
+    {
+        size_t idx = json_add_int(jobj_get_json(obj), num);
+        jobj_add_kv(obj, key, JTYPE_INT, idx);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1562,8 +1604,7 @@ void jobj_add_strl( jobj_t obj, const char* key, const char* str, size_t slen )
 void jobj_add_bool( jobj_t obj, const char* key, jbool_t b )
 {
     assert(key);
-    uint32_t type = (b) ? JTYPE_TRUE : JTYPE_FALSE;
-    jobj_add_kv(obj, key, type, 0);
+    jobj_add_kv(obj, key, JTYPE_BOOL, b);
 }
 
 //------------------------------------------------------------------------------
@@ -1807,10 +1848,18 @@ void jarray_add_int( jarray_t _a, jint_t num )
 
     _jarray_t* a = _jarray_get_array(_a);
     jval_t* val = _jarray_add_val(a);
-    val->type = JTYPE_INT;
 
-    assert (idx < MAX_VAL_IDX);
-    val->idx = (uint32_t)idx;
+    if (MIN_JSHORT <= num && num <= MAX_JSHORT)
+    {
+        val->type = JTYPE_SHORT;
+        val->idx = jint_to_short(num);
+    }
+    else
+    {
+        val->type = JTYPE_INT;
+        assert (idx < MAX_VAL_IDX);
+        val->idx = (uint32_t)idx;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1832,8 +1881,8 @@ void jarray_add_bool( jarray_t _a, jbool_t b )
 {
     _jarray_t* a = _jarray_get_array(_a);
     jval_t* val = _jarray_add_val(a);
-    val->type = (b) ? JTYPE_TRUE : JTYPE_FALSE;
-    val->idx = 0;
+    val->type = JTYPE_BOOL;
+    val->idx = b;
 }
 
 //------------------------------------------------------------------------------
@@ -2955,14 +3004,14 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
             json_assert( jcontext_next(ctx) == 'r', "expected literal 'true'");
             json_assert( jcontext_next(ctx) == 'u', "expected literal 'true'");
             json_assert( jcontext_next(ctx) == 'e', "expected literal 'true'"); jcontext_next(ctx);
-            return (jval_t){JTYPE_TRUE, 0};
+            return (jval_t){JTYPE_BOOL, 1};
 
         case 'f': // false
             json_assert( jcontext_next(ctx) == 'a', "expected literal 'false'");
             json_assert( jcontext_next(ctx) == 'l', "expected literal 'false'");
             json_assert( jcontext_next(ctx) == 's', "expected literal 'false'");
             json_assert( jcontext_next(ctx) == 'e', "expected literal 'false'"); jcontext_next(ctx);
-            return (jval_t){JTYPE_FALSE, 0};
+            return (jval_t){JTYPE_BOOL, 0};
 
         case 'n': // null
             json_assert( jcontext_next(ctx) == 'u', "expected literal 'null'");
@@ -2988,7 +3037,14 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
             // TODO support for integer types
             if (num == intval)
             {
-                return (jval_t){JTYPE_INT, (uint32_t)json_add_int(jsn, intval)};
+                if (MIN_JSHORT <= intval && intval <= MAX_JSHORT)
+                {
+                    return (jval_t){JTYPE_SHORT, (uint32_t)jint_to_short(intval)};
+                }
+                else
+                {
+                    return (jval_t){JTYPE_INT, (uint32_t)json_add_int(jsn, intval)};
+                }
             }
             else
             {

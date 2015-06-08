@@ -636,7 +636,8 @@ namespace ims
         {}
 
         val ( bool b )
-            : m_type(b ? JTYPE_TRUE : JTYPE_FALSE)
+            : m_type(JTYPE_BOOL)
+            , m_bool(b)
         {}
 
         val ( size_t n )
@@ -746,12 +747,8 @@ namespace ims
                 case JTYPE_NIL:
                     new (this) val();
 
-                case JTYPE_FALSE:
-                    new (this) val(false);
-                    break;
-
-                case JTYPE_TRUE:
-                    new (this) val(true);
+                case JTYPE_BOOL:
+                    new (this) val(mv.m_bool);
                     break;
 
                 default:
@@ -789,12 +786,8 @@ namespace ims
                     new (this) val();
                     break;
 
-                case JTYPE_FALSE:
-                    new (this) val(false);
-                    break;
-
-                case JTYPE_TRUE:
-                    new (this) val(true);
+                case JTYPE_BOOL:
+                    new (this) val(v.m_bool);
                     break;
 
                 default:
@@ -813,6 +806,7 @@ namespace ims
             jint_t m_int;
             val::array m_array;
             val::obj m_obj;
+            bool m_bool;
         };
     };
 
@@ -857,12 +851,8 @@ namespace ims
                 push_back(nullptr);
                 break;
 
-            case JTYPE_FALSE:
-                push_back(false);
-                break;
-
-            case JTYPE_TRUE:
-                push_back(true);
+            case JTYPE_BOOL:
+                push_back(v.m_bool);
                 break;
 
             default:
@@ -912,12 +902,8 @@ namespace ims
                 this->operator=(nullptr);
                 break;
 
-            case JTYPE_FALSE:
-                this->operator=(false);
-                break;
-
-            case JTYPE_TRUE:
-                this->operator=(true);
+            case JTYPE_BOOL:
+                this->operator=(v.m_bool);
                 break;
 
             default:

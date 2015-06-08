@@ -215,8 +215,8 @@ extern const char JVER[32];
     @constant JTYPE_NUM a json number type.
     @constant JTYPE_ARRAY a json array type.
     @constant JTYPE_OBJ a json object type.
-    @constant JTYPE_TRUE a json boolean indicating true.
-    @constant JTYPE_FALSE a json boolean indicating false.
+    @constant JTYPE_BOOL a json boolean type.
+    @constant JTYPE_SHORT a json short type (internal use only).
 */
 enum jtype_t
 {
@@ -225,9 +225,9 @@ enum jtype_t
     JTYPE_NUM   = 2,
     JTYPE_ARRAY = 3,
     JTYPE_OBJ   = 4,
-    JTYPE_TRUE  = 5,
-    JTYPE_FALSE = 6,
-    JTYPE_INT   = 7
+    JTYPE_BOOL  = 5,
+    JTYPE_INT   = 6,
+    JTYPE_SHORT = 7, // internal enum
 };
 typedef enum jtype_t jtype_t;
 
@@ -332,7 +332,7 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
     @param VAL the value.
     @return whether or not the value is a number type.
 */
-#define jval_is_num(VAL) (jval_type(VAL) == JTYPE_NUM || jval_type(VAL) == JTYPE_INT)
+#define jval_is_num(VAL) (jval_type(VAL) == JTYPE_NUM || jval_type(VAL) == JTYPE_INT || jval_type(VAL) == JTYPE_SHORT)
 
 /*!
     @function jval_is_int
@@ -341,7 +341,7 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
     @param VAL the value.
     @return whether or not the value is a integer type.
 */
-#define jval_is_int(VAL) (jval_type(VAL) == JTYPE_INT)
+#define jval_is_int(VAL) (jval_type(VAL) == JTYPE_INT || jval_type(VAL) == JTYPE_SHORT)
 
 /*!
     @function jval_is_obj
@@ -359,7 +359,7 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
     @param VAL the value.
     @return whether or not the value is true.
 */
-#define jval_is_true(VAL) (jval_type(VAL) == JTYPE_TRUE)
+#define jval_is_true(VAL) (jval_type(VAL) == JTYPE_BOOL && (VAL).idx)
 
 /*!
     @function jval_is_false
@@ -368,7 +368,7 @@ void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* u
     @param VAL the value.
     @return whether or not the value is false.
 */
-#define jval_is_false(VAL) (jval_type(VAL) == JTYPE_FALSE)
+#define jval_is_false(VAL) (jval_type(VAL) == JTYPE_BOOL && !(VAL).idx)
 
 /*!
     @function jval_is_bool
