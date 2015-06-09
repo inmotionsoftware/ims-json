@@ -507,7 +507,46 @@ JINLINE size_t grow( size_t min, size_t cur )
     return size;
 }
 
+#pragma mark - jstr_t
+
+//------------------------------------------------------------------------------
+void jstr_destroy(jstr_t* jstr)
+{
+    assert(jstr);
+    if (jstr->len > BUF_SIZE)
+    {
+        jfree(jstr->str.chars);
+        jstr->str.chars = NULL;
+    }
+    jstr->str.buf[0] = '\0';
+    jstr->len = 0;
+    jstr->hash = 0;
+}
+
+//------------------------------------------------------------------------------
+const char* jstr_get_cstr( jstr_t* jstr )
+{
+    assert(jstr);
+    return (jstr->len > BUF_SIZE) ? jstr->str.chars : jstr->str.buf;
+}
+
+//------------------------------------------------------------------------------
+int jstr_cmp( jstr_t* s1, jstr_t* s2 )
+{
+    const char* b1 = jstr_get_cstr(s1);
+    const char* b2 = jstr_get_cstr(s2);
+    size_t len = jmins(s1->len, s2->len);
+    int rt = memcmp(b1, b2, len);
+    if (rt == 0 && s1->len != s2->len)
+    {
+        if (s1->len<s2->len) return -1;
+        if (s1->len>s2->len) return 1;
+    }
+    return rt;
+}
+
 #pragma mark - jprint_t
+
 //------------------------------------------------------------------------------
 JINLINE void jprint_init( jprint_t* p, const char* tabs, const char* newline, const char* space )
 {
@@ -736,11 +775,7 @@ JINLINE void jmap_destroy(jmap_t* map)
         // cleanup strings
         for ( size_t i = 0; i < map->slen; i++ )
         {
-            jstr_t* str = &map->strs[i];
-            if (str->len > BUF_SIZE)
-            {
-                jfree(str->str.chars);
-            }
+            jstr_destroy(&map->strs[i]);
         }
         jfree(map->strs); map->strs = NULL;
     }
@@ -936,11 +971,12 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
 #pragma mark - jval_t
 
 //------------------------------------------------------------------------------
-JINLINE void json_print_str( jprint_t* ctx, const char* str )
+JINLINE void json_print_strl( jprint_t* ctx, const char* str, size_t len )
 {
     jprint_char(ctx, '\"');
-    for ( int ch = *str&0xFF; ch; ch = *++str&0xFF )
+    for ( size_t i = 0; i < len; i++ )
     {
+        int ch = str[i];
         switch (ch)
         {
             case 0x0:
@@ -1067,8 +1103,13 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
             break;
 
         case JTYPE_STR:
-            json_print_str(ctx, json_get_str(jsn, val));
+        {
+            size_t slen;
+            const char* str = json_get_strl(jsn, val, &slen);
+            assert(str);
+            json_print_strl(ctx, str, slen);
             break;
+        }
 
         case JTYPE_INT:
             jprint_fmt(ctx, "%lld", json_get_int(jsn, val));
@@ -1275,15 +1316,16 @@ JINLINE size_t json_add_strl( json_t* jsn, const char* str, size_t slen )
     assert (idx != SIZE_MAX);
     return idx;
 }
+
 //------------------------------------------------------------------------------
-const char* json_get_str( json_t* jsn, jval_t val )
+const char* json_get_strl( json_t* jsn, jval_t val, size_t* len )
 {
     if (!jval_is_str(val)) return NULL;
 
     jstr_t* jstr = jmap_get_str(&jsn->strmap, val.idx);
     if (!jstr) return NULL;
-
-    return (jstr->len > BUF_SIZE) ? jstr->str.chars : jstr->str.buf;
+    *len = jstr->len;
+    return jstr_get_cstr(jstr);
 }
 
 //------------------------------------------------------------------------------
@@ -1351,21 +1393,6 @@ jarray_t json_get_array( json_t* jsn, jval_t val )
     if (!jval_is_array(val)) return JNULL_ARRAY;
     assert( _json_get_array(jsn, val.idx) );
     return (jarray_t){.json=jsn, .idx=val.idx};
-}
-
-//------------------------------------------------------------------------------
-int jstr_cmp( jstr_t* s1, jstr_t* s2 )
-{
-    const char* b1 = s1->len > BUF_SIZE ? s1->str.chars : s1->str.buf;
-    const char* b2 = s2->len > BUF_SIZE ? s2->str.chars : s2->str.buf;
-    size_t len = jmins(s1->len, s2->len);
-    int rt = memcmp(b1, b2, len);
-    if (rt == 0 && s1->len != s2->len)
-    {
-        if (s1->len<s2->len) return -1;
-        if (s1->len>s2->len) return 1;
-    }
-    return rt;
 }
 
 //------------------------------------------------------------------------------
@@ -1485,9 +1512,18 @@ size_t jobj_len( jobj_t obj )
 }
 
 //------------------------------------------------------------------------------
-const char* jobj_get(jobj_t obj, size_t idx, jval_t* val)
+jbool_t jobj_contains_key( jobj_t obj, const char* key )
+{
+    size_t outlen;
+    const char* str = jobj_find_strl(obj, key, &outlen);
+    return (str) ? JTRUE : JFALSE;
+}
+
+//------------------------------------------------------------------------------
+const char* jobj_get(jobj_t obj, size_t idx, jval_t* val, size_t* klen)
 {
     assert(val);
+    assert(klen);
 
     _jobj_t* _obj = jobj_get_obj(obj);
     json_t* jsn = jobj_get_json(obj);
@@ -1497,12 +1533,14 @@ const char* jobj_get(jobj_t obj, size_t idx, jval_t* val)
     *val = kvs[idx].val;
     if (kvs[idx].val.type & ~JTYPE_MASK)
     {
+        *klen = strlen(kvs[idx].key.kstr);
         return kvs[idx].key.kstr;
     }
 
     jstr_t* jstr = jmap_get_str(&jsn->strmap, kvs[idx].key.kidx);
     assert(jstr);
-    return (jstr->len > BUF_SIZE) ? jstr->str.chars : jstr->str.buf;
+    *klen = jstr->len;
+    return jstr_get_cstr(jstr);
 }
 
 //------------------------------------------------------------------------------
@@ -1780,10 +1818,11 @@ JINLINE void _jobj_print(jprint_t* ctx, jobj_t obj, size_t depth)
     for ( size_t i = 0; i < len; i++ )
     {
         jval_t val;
-        const char* key = jobj_get(obj, i, &val);
+        size_t klen;
+        const char* key = jobj_get(obj, i, &val, &klen);
 
         jprint_tabs(ctx, depth+1);
-        json_print_str(ctx, key);
+        json_print_strl(ctx, key, klen);
         jprint_char(ctx, ':');
         jprint_space(ctx);
         _jval_print(ctx, jsn, val, depth+1);
@@ -2077,11 +2116,12 @@ JINLINE void jbuf_end_str( jbuf_t* buf )
 //------------------------------------------------------------------------------
 JINLINE int jbuf_add_unicode(jbuf_t* str, int32_t codepoint )
 {
-    if (codepoint == 0)
-    {
-        return EXIT_FAILURE;
-    }
-    else if(codepoint < 0x80)
+//    if (codepoint == 0)
+//    {
+//        return EXIT_FAILURE;
+//    }
+//    else
+    if(codepoint < 0x80)
     {
         jbuf_add(str, (char)codepoint);
     }
@@ -2895,11 +2935,11 @@ JINLINE void parse_str(jbuf_t* str, jcontext_t* ctx)
             {
                 switch (ch)
                 {
-                    case '\0':
-                        //jbuf_add(str, (char)ch);
-                        jbuf_end_str(str);
-                        json_assert(JFALSE, "NUL character in string: '%s\\0'", str->ptr);
-                        break;
+//                    case '\0':
+//                        //jbuf_add(str, (char)ch);
+//                        jbuf_end_str(str);
+//                        json_assert(JFALSE, "NUL character in string: '%s\\0'", str->ptr);
+//                        break;
 
                     // control characters not allowed
                     case '\f':
@@ -3410,7 +3450,7 @@ JINLINE void compile_macros()
     jobj_find_nil(obj, key);
     jobj_find_num(obj, key);
     jobj_find_obj(obj, key);
-    jobj_find_str(obj, key);
+    jobj_find_strl(obj, key, &idx);
     jerr_fprint(file, &err);
 
     jarray_get_array(array, idx);
@@ -3418,7 +3458,7 @@ JINLINE void compile_macros()
     jarray_get_json(array);
     jarray_get_num(array, idx);
     jarray_get_obj(array, idx);
-    jarray_get_str(array, idx);
+    jarray_get_strl(array, idx, &idx);
 
     jobj_get_json(obj);
     jobj_find(obj, key);

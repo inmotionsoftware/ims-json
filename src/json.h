@@ -540,9 +540,10 @@ size_t jobj_len( jobj_t obj );
     @param idx the index to retrieve. If the index is out of range, the results 
            are unspecified.
     @param val a pointer to hold the value returned. Must not be NULL.
+    @param klen the length of the key string.
     @return the key of the value.
 */
-const char* jobj_get(jobj_t obj, size_t idx, jval_t* val);
+const char* jobj_get(jobj_t obj, size_t idx, jval_t* val, size_t* klen);
 
 /*!
     Gets the value from the object at the given index.
@@ -596,6 +597,17 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
 */
 #define jobj_add_str(OBJ, KEY, STR) jobj_add_strl(OBJ, KEY, STR, strlen(STR))
 
+///*!
+//    @function jobj_find_str
+//    Searches the json doc for a string with the given key. If the key is not
+//    found or the value is not a string, a NULL pointer is returned.
+//    
+//    @param OBJ the object to search.
+//    @param KEY the key to search for.
+//    @return a string value, or NULL if not found.
+//*/
+//#define jobj_find_str(OBJ, KEY) json_get_str(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+
 /*!
     @function jobj_find_str
     Searches the json doc for a string with the given key. If the key is not
@@ -605,7 +617,7 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
     @param KEY the key to search for.
     @return a string value, or NULL if not found.
 */
-#define jobj_find_str(OBJ, KEY) json_get_str(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+#define jobj_find_strl(OBJ, KEY, SLEN) json_get_strl(jobj_get_json(OBJ), jobj_find(OBJ, KEY), SLEN)
 
 /*!
     @function jobj_find_num
@@ -806,15 +818,26 @@ void jarray_print(jarray_t array, int flags, print_func p, void* udata);
 */
 #define jarray_get_json(A) (A).json
 
+///*!
+//    @function jarray_get_str
+//    Gets a string from the array at the given index. 
+//    
+//    @param A the array
+//    @param IDX the index of the string value.
+//    @return the string value for the index, or NULL.
+//*/
+//#define jarray_get_str(A, IDX) json_get_str(jarray_get_json(A), jarray_get(A, IDX))
+
 /*!
     @function jarray_get_str
     Gets a string from the array at the given index. 
     
     @param A the array
     @param IDX the index of the string value.
+    @param SLEN output for the string length.
     @return the string value for the index, or NULL.
 */
-#define jarray_get_str(A, IDX) json_get_str(jarray_get_json(A), jarray_get(A, IDX))
+#define jarray_get_strl(A, IDX, SLEN) json_get_strl(jarray_get_json(A), jarray_get(A, IDX), SLEN)
 
 /*!
     @function jarray_get_num
@@ -1295,9 +1318,19 @@ jarray_t json_root_array( json_t* jsn );
     @param jsn the json doc. Must not be null.
     @param val the value to retrieve. Must be a string value and must belong to 
                the json doc.
+    @param slen non-null output pointer to the string length.
     @return The string value, or NULL if not found / invalid.
 */
-const char* json_get_str( json_t* jsn, jval_t val );
+const char* json_get_strl( json_t* jsn, jval_t val, size_t* slen );
+
+/*!
+    Test's whether or not the given key can be found in the object.
+
+    @param obj the json doc. Must not be null.
+    @param key the search key.
+    @return JTRUE if the key is found, JFALSE otherwise.
+*/
+jbool_t jobj_contains_key( jobj_t obj, const char* key );
 
 /*!
     Get's a number value from a json doc. If the value is not a number a 0 is 

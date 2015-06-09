@@ -934,14 +934,14 @@ namespace ims
         operator int() const { return (int)json_get_int(m_jsn, m_val); }
         operator jint_t() const { return json_get_int(m_jsn, m_val); }
         operator jnum_t() const { return json_get_num(m_jsn, m_val); }
-        operator const char*() const { return json_get_str(m_jsn, m_val); }
         operator bool() const { return json_get_bool(m_jsn, m_val); }
         operator obj() const { return json_get_obj(m_jsn, m_val); }
         operator array() const { return json_get_array(m_jsn, m_val); }
         operator std::string () const
         {
-            const char* cstr =  json_get_str(m_jsn, m_val);
-            return (cstr) ? cstr : std::string();
+            size_t slen;
+            const char* cstr = json_get_strl(m_jsn, m_val, &slen);
+            return (cstr) ? std::string(cstr, slen) : std::string();
         }
 
         int compare( const const_val& val ) const { return json_compare_val(m_jsn, m_val, val.m_val); }
@@ -1028,9 +1028,10 @@ namespace ims
     inline obj::key_val obj::iterator::operator*() const
     {
         jval_t val;
-        const char* key = jobj_get(m_obj, m_idx, &val);
+        size_t klen;
+        const char* key = jobj_get(m_obj, m_idx, &val, &klen);
         json_t* jsn = jobj_get_json(m_obj.m_obj);
-        return std::make_pair(key, const_val(jsn, val) );
+        return std::make_pair(std::string(key, klen), const_val(jsn, val) );
     }
 }
 

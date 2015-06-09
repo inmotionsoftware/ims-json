@@ -209,8 +209,7 @@ static void test_reload()
         exit(EXIT_FAILURE);
     }
 
-    assert(!jobj_find_str(json_root_obj(jsn), KEY));
-
+    assert(!jobj_contains_key(json_root_obj(jsn), KEY));
     json_free(jsn); jsn = NULL;
 }
 
