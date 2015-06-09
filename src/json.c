@@ -274,7 +274,7 @@ JINLINE void FILE_get_path(FILE* file, char* buf, size_t blen )
 }
 
 //------------------------------------------------------------------------------
-JINLINE int jsnprintf( char* buf, size_t blen, const char* fmt, ... )
+JINLINE size_t jsnprintf( char* buf, size_t blen, const char* fmt, ... )
 {
     assert(blen > 0);
 
@@ -283,7 +283,7 @@ JINLINE int jsnprintf( char* buf, size_t blen, const char* fmt, ... )
     int rt = vsnprintf(buf, blen, fmt, args);
     va_end(args);
     buf[blen-1] = '\0';
-    return rt;
+    return (rt<(blen-1)) ? rt : (blen-1);
 }
 
 //------------------------------------------------------------------------------
@@ -943,6 +943,38 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
     {
         switch (ch)
         {
+            case 0x0:
+            case 0x1:
+            case 0x2:
+            case 0x3:
+            case 0x4:
+            case 0x5:
+            case 0x6:
+            case 0x7:
+            case 0xB:
+            case 0xE:
+            case 0xF:
+            case 0x10:
+            case 0x11:
+            case 0x12:
+            case 0x13:
+            case 0x14:
+            case 0x15:
+            case 0x16:
+            case 0x17:
+            case 0x18:
+            case 0x19:
+            case 0x1A:
+            case 0x1B:
+            case 0x1C:
+            case 0x1D:
+            case 0x1E:
+            case 0x1F: // non-printable control characters
+                // these are control characters which do not have escapes in
+                // json, they must be output in as UTF8 sequences
+                jprint_fmt(ctx, "\\u%04X", ch);
+                break;
+
             case '\\':
                 jprint_const(ctx, "\\\\");
                 break;
@@ -975,33 +1007,33 @@ JINLINE void json_print_str( jprint_t* ctx, const char* str )
                 jprint_const(ctx, "\\/");
                 break;
 
-            case '\0':
-                jprint_const(ctx, "\\u0000");
-                break;
-
             default:
             {
+                // check to see if we are outputing raw utf8 bytes, if so just
+                // dump them out.
                 if (!ctx->esc_uni)
                 {
                     jprint_char(ctx, (char)ch);
                     break;
                 }
 
+                // first convert to a codepoint
                 uint32_t codepoint;
                 const char* next = utf8_codepoint(str, &codepoint);
                 assert(next);
 
+                // if it is a valid codepoint write it out
                 if (next != str)
                 {
-                    if (codepoint < 0x80)
+                    if (codepoint < 0x80) // ascii value, dump it as is
                     {
                         jprint_char(ctx, (char)codepoint);
                     }
-                    else if (codepoint < 0x10000)
+                    else if (codepoint < 0x10000) // convert to hex
                     {
                         jprint_fmt(ctx, "\\u%04X", codepoint);
                     }
-                    else
+                    else // surrogate pair, split into 2 unicode sequences
                     {
                         int32_t first, last;
                         codepoint -= 0x10000;
@@ -1047,8 +1079,43 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
             break;
 
         case JTYPE_NUM:
-            jprint_fmt(ctx, "%.17g", json_get_num(jsn, val));
+        {
+            // We want to make sure this ends up as a floating point value.
+            // 1) Output the value into a buffer using printf
+            // 2) Check to see if it was output as an integer or floating point
+            // 3) If it's an integer make it a float by adding a decimal point
+            char buf[30];
+            size_t len = jsnprintf(buf, sizeof(buf), "%0.17g", json_get_num(jsn, val));
+            assert(len > 0);
+
+            // dump buffer
+            jprint_write(ctx, buf, len);
+
+            // check for floating point markers
+            jbool_t isfloat = JFALSE;
+            for ( size_t i = 0; i < len && !isfloat; i++ )
+            {
+                switch (buf[i])
+                {
+                    case 'e':
+                    case 'E':
+                    case '.':
+                        isfloat = JTRUE;
+                        i = len;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            // make sure this ends up as a floating point value.
+            if (len > 0 && !isfloat)
+            {
+                jprint_const(ctx, ".0");
+            }
             break;
+        }
 
         case JTYPE_ARRAY:
             _jarray_print(ctx, json_get_array(jsn, val), depth);
