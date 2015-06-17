@@ -35,6 +35,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 #pragma mark - macros
 
@@ -42,6 +43,7 @@
 #if (!defined(_WIN32) && (defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))))
     #include <unistd.h>
     #include <fcntl.h>
+    #include <sys/time.h>
     #if (_POSIX_VERSION >= 199506L)
         #define J_USE_POSIX 1
     #endif
@@ -652,8 +654,13 @@ JINLINE void jprint_newline(jprint_t* ctx)
 #pragma mark - jstr_t
 
 //------------------------------------------------------------------------------
-JINLINE jhash_t murmur3_32(const char *key, size_t len, jhash_t seed)
+JINLINE jhash_t jstr_hash(const char *key, size_t len, jhash_t seed)
 {
+    // https://en.wikipedia.org/wiki/MurmurHash
+    // MurmurHash is a non-cryptographic hash function suitable for general
+    // hash-based lookup.
+
+    // MurmurHash3-32 - version 3 of the Murmur Hash with a 32 bit hash value.
 	static const uint32_t c1 = 0xcc9e2d51;
 	static const uint32_t c2 = 0x1b873593;
 	static const uint32_t r1 = 15;
@@ -706,14 +713,6 @@ JINLINE jhash_t murmur3_32(const char *key, size_t len, jhash_t seed)
 }
 
 //------------------------------------------------------------------------------
-JINLINE jhash_t jstr_hash( const char* key, size_t len )
-{
-    static const jhash_t MURMER32_SEED = 0;
-    static const size_t MAX_CHARS = 32;
-    return murmur3_32(key, jmins(MAX_CHARS, len), MURMER32_SEED);
-}
-
-//------------------------------------------------------------------------------
 JINLINE void jstr_init_str_hash( jstr_t* jstr, const char* cstr, size_t len, jhash_t hash )
 {
     assert(jstr);
@@ -742,6 +741,12 @@ JINLINE void jstr_init_str_hash( jstr_t* jstr, const char* cstr, size_t len, jha
 JINLINE void jmap_init(jmap_t* map)
 {
     assert(map);
+
+    clock_t val = clock();
+    jhash_t seed = jstr_hash((const char*)&val, sizeof(val), (unsigned int)(time(NULL)&0xFFFFFFFF));
+    srand(seed); // seed our random number
+
+    map->seed = (uint32_t)rand();
 
     map->blen = 0;
     map->bcap = 0;
@@ -946,7 +951,7 @@ JINLINE size_t jmap_find_hash(jmap_t* map, jhash_t hash, const char* cstr, size_
 }
 
 //------------------------------------------------------------------------------
-#define jmap_find_str(MAP, CSTR, SLEN) jmap_find_hash(MAP, jstr_hash(CSTR, SLEN), CSTR, SLEN)
+#define jmap_find_str(MAP, CSTR, SLEN) jmap_find_hash(MAP, jstr_hash(CSTR, SLEN, (MAP)->seed), CSTR, SLEN)
 
 //------------------------------------------------------------------------------
 JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
@@ -954,7 +959,7 @@ JINLINE size_t jmap_add_str(jmap_t* map, const char* cstr, size_t slen)
     assert(map);
     assert(cstr);
 
-    jhash_t hash = jstr_hash(cstr, slen);
+    jhash_t hash = jstr_hash(cstr, slen, map->seed);
 
     size_t idx = jmap_find_hash(map, hash, cstr, slen);
     if (idx != SIZE_MAX)
@@ -2724,7 +2729,7 @@ JINLINE uint64_t parse_digits( jcontext_t* ctx, int* cnt )
 }
 
 //------------------------------------------------------------------------------
-JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
+JINLINE int parse_num( jcontext_t* ctx, jnum_t* _num, jint_t* _int )
 {
     assert(ctx);
     assert(_int);
@@ -2789,7 +2794,6 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
             expsign = parse_sign(ctx);
             uint64_t e = parse_digits(ctx, &ndigits);
             json_assert(ndigits > 0, "number truncated at 'e'");
-
             exp += (int)e;
             break;
         }
@@ -2803,8 +2807,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
     {
         if (expsign < 0) // negative exponent
         {
-            if (exp > MAX_EXP) return 0; // underflow, set to 0
-            num = (dec + fract/jpow10(fexp)) / jpow10(exp);
+            num = (exp <= MAX_EXP) ? (dec + fract/jpow10(fexp)) / jpow10(exp) : 0; // underflow, set to 0
         }
         else // positive
         {
@@ -2821,7 +2824,7 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
         {
             *_int = (jint_t)(sign*dec);
             json_assert(*_int<=LLONG_MAX && *_int>=LLONG_MIN, "integer overflow");
-            return *_int;
+            return (MIN_JSHORT <= *_int && *_int <= MAX_JSHORT) ? JTYPE_SHORT : JTYPE_INT;
         }
         else // fractional number
         {
@@ -2832,7 +2835,9 @@ JINLINE jnum_t parse_num( jcontext_t* ctx, jint_t* _int )
 
     num *= sign; // apply the sign
     json_assert(!isnan(num) && !isinf(num), "numeric overflow");
-    return num;
+    *_num = num;
+
+    return JTYPE_NUM;
 }
 
 //------------------------------------------------------------------------------
@@ -3139,23 +3144,21 @@ JINLINE jval_t parse_val( json_t* jsn, jcontext_t* ctx )
         case '9':
         {
             jint_t intval;
-            jnum_t num = parse_num(ctx, &intval);
-
-            // TODO support for integer types
-            if (num == intval)
+            jnum_t numval;
+            int type = parse_num(ctx, &numval, &intval);
+            switch(type)
             {
-                if (MIN_JSHORT <= intval && intval <= MAX_JSHORT)
-                {
+                case JTYPE_SHORT:
                     return (jval_t){JTYPE_SHORT, (uint32_t)jint_to_short(intval)};
-                }
-                else
-                {
+
+                case JTYPE_INT:
                     return (jval_t){JTYPE_INT, (uint32_t)json_add_int(jsn, intval)};
-                }
-            }
-            else
-            {
-                return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, num)};
+
+                case JTYPE_NUM:
+                    return (jval_t){JTYPE_NUM, (uint32_t)json_add_num(jsn, numval)};
+
+                default:
+                    assert(JFALSE); // should never get here
             }
         }
 

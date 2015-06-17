@@ -903,6 +903,8 @@ void jarray_print(jarray_t array, int flags, print_func p, void* udata);
 */
 struct jmap_t
 {
+    uint32_t seed;
+
     size_t blen;
     size_t bcap;
     struct jmapbucket_t* buckets;
