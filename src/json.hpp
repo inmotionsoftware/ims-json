@@ -408,6 +408,8 @@ namespace ims
         bool operator== ( const array& a ) const { return m_array.json == a.m_array.json && m_array.idx == a.m_array.idx; }
         size_t size() const { return jarray_len(m_array); }
 
+        void reserve( size_t s ) { jarray_reserve(m_array, s); }
+
         bool empty() const { return jarray_len(m_array) == 0; }
 
         array& push_back( jint_t n )
@@ -488,6 +490,13 @@ namespace ims
     {
         a.push_back(t);
         _add(a, args...);
+    }
+
+    //--------------------------------------------------------------------------
+    static inline size_t ostream_write( void* ctx, const void* ptr, size_t n )
+    {
+        ((std::ostream*)ctx)->write((const char*)ptr, n);
+        return n;
     }
 
     //--------------------------------------------------------------------------
@@ -603,6 +612,15 @@ namespace ims
             return std::move(str);
         }
 
+        /**
+            Writes out json doc to the given stream using the provided options
+            @return the root object.
+        */
+        size_t write( std::ostream& os, int opts = JPRINT_PRETTY ) const
+        {
+            return json_print(m_jsn, opts, ostream_write, &os);
+        }
+
         friend std::ostream& operator<< ( std::ostream& os, const json& j );
 
     protected:
@@ -614,13 +632,6 @@ namespace ims
 
         json_t* m_jsn;
     };
-
-    //--------------------------------------------------------------------------
-    static inline size_t ostream_write( void* ctx, const void* ptr, size_t n )
-    {
-        ((std::ostream*)ctx)->write((const char*)ptr, n);
-        return n;
-    }
 
     //--------------------------------------------------------------------------
     class val
@@ -988,7 +999,7 @@ namespace ims
     {
         if (jsn)
         {
-            json_print(jsn.m_jsn, JPRINT_PRETTY, ostream_write, &os);
+            jsn.write(os);
         }
         return os;
     }
