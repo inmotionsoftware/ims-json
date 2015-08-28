@@ -111,6 +111,9 @@ struct jcontext_t
     char buf[IO_BUF_SIZE];
     FILE* file;
 
+    void* uptr;
+    json_read ufunc;
+
     jerr_t* err;
 
     jmp_buf jerr_jmp;
@@ -2430,6 +2433,8 @@ jarray_t json_root_array( json_t* jsn )
 JINLINE void jcontext_init(jcontext_t* ctx)
 {
     assert(ctx);
+    ctx->uptr = NULL;
+    ctx->ufunc = NULL;
     ctx->beg = NULL;
     ctx->end = NULL;
     ctx->file = NULL;
@@ -2453,6 +2458,15 @@ JINLINE void jcontext_init_file(jcontext_t* ctx, FILE* file)
     assert(file);
     jcontext_init(ctx);
     ctx->file = file;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void jcontext_init_user(jcontext_t* ctx, void* ptr, json_read func)
+{
+    assert(func);
+    jcontext_init(ctx);
+    ctx->ufunc = func;
+    ctx->uptr = ptr;
 }
 
 //------------------------------------------------------------------------------
@@ -2480,6 +2494,17 @@ JINLINE void jcontext_read_file( jcontext_t* ctx )
 }
 
 //------------------------------------------------------------------------------
+JINLINE void jcontext_read_user( jcontext_t* ctx )
+{
+    if (ctx->beg != ctx->end) return;
+
+    // read file into buffer
+    size_t len = ctx->ufunc(ctx->buf, IO_BUF_SIZE, ctx->uptr);
+    ctx->beg = ctx->buf;
+    ctx->end = ctx->beg + len;
+}
+
+//------------------------------------------------------------------------------
 JINLINE int jcontext_peek( jcontext_t* ctx )
 {
     if (ctx->beg == ctx->end)
@@ -2498,6 +2523,10 @@ JINLINE int jcontext_next( jcontext_t* ctx )
     if (ctx->file)
     {
         jcontext_read_file(ctx);
+    }
+    else if (ctx->ufunc)
+    {
+        jcontext_read_user(ctx);
     }
     return jcontext_peek(ctx);
 }
@@ -3259,6 +3288,31 @@ int json_parse( json_t* jsn, jcontext_t* ctx )
     }
 
     return EXIT_FAILURE;
+}
+
+//------------------------------------------------------------------------------
+int json_load_user(json_t* jsn, void* uptr, json_read func, jerr_t* err)
+{
+    assert(jsn);
+    assert(err);
+    assert(func);
+    assert(uptr);
+
+    jcontext_t ctx;
+    jcontext_init_user(&ctx, uptr, func);
+    jcontext_read_user(&ctx);
+
+    jerr_init_src(err, "<user>");
+    ctx.err = err;
+
+    int status = json_parse(jsn, &ctx);
+    if (status != 0)
+    {
+        json_destroy(jsn); jsn = NULL;
+    }
+
+    jcontext_destroy(&ctx);
+    return status;
 }
 
 //------------------------------------------------------------------------------

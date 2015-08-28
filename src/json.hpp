@@ -621,7 +621,14 @@ namespace ims
             return json_print(m_jsn, opts, ostream_write, &os);
         }
 
+        /**
+            Clears out the contents of the json doc, removing all keys and 
+            values. The end result will be an empty json document.
+        */
+        void clear() { json_clear(m_jsn); }
+
         friend std::ostream& operator<< ( std::ostream& os, const json& j );
+        friend std::istream& operator>> ( std::istream& is, json& j );
 
     protected:
         json( json_t* j )
@@ -972,6 +979,26 @@ namespace ims
         json_t* m_jsn;
         jval_t m_val;
     };
+
+    //--------------------------------------------------------------------------
+    inline size_t _json_read_istream(void* buf, size_t n, void* ptr)
+    {
+        std::istream* isptr = (std::istream*)ptr;
+        isptr->read((char*)buf, n);
+        return isptr->gcount();
+    }
+
+    //--------------------------------------------------------------------------
+    inline std::istream& operator>> ( std::istream& is, json& j )
+    {
+        j.clear();
+        jerr_t err;
+        if (json_load_user(j.m_jsn, &is, _json_read_istream, &err))
+        {
+            throw std::runtime_error(err.msg);
+        }
+        return is;
+    }
 
     //--------------------------------------------------------------------------
     inline std::ostream& operator<< ( std::ostream& os, const obj& o )

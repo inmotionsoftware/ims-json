@@ -1097,6 +1097,28 @@ int json_load_path(json_t* jsn, const char* path, jerr_t* err);
 int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
 
 /*!
+    User function for loading json data. 
+
+    @param buf output buffer for writing.
+    @param buflen the buffer size.
+    @param opaque user pointer.
+    
+    @return the number of items read, or 0 if nothing was read.
+*/
+typedef size_t (*json_read)( void* buf, size_t buflen, void* uptr );
+
+/*!
+    Loads a json doc from the given user function.
+    
+    @param jsn the json doc to load. Must not be null.
+    @param uptr a user supplied pointer.
+    @param func a function for reading data.
+    @param err pointer to store error info on failure.
+    @return the status code. Non-zero for an error.
+*/
+int json_load_user(json_t* jsn, void* uptr, json_read func, jerr_t* err);
+
+/*!
     Loads a json doc from a memory buffer of the given length.
     
     Example:
