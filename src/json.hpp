@@ -505,6 +505,23 @@ namespace ims
         friend class val;
         friend class const_val;
     public:
+        static json from_buf( const std::vector<char>& buf )
+        {
+            return from_buf(buf.data(), buf.size());
+        }
+
+        static json from_buf( const char* buf, size_t buflen )
+        {
+            // Error handling uses C++ style exceptions
+            json_t* jsn = json_new();
+            jerr_t err;
+            if (json_load_buf(jsn, buf, buflen, &err) != 0)
+            {
+                throw std::runtime_error(err.msg);
+            }
+            return json(jsn);
+        }
+
         static json from_file( const std::string& path )
         {
             // Error handling uses C++ style exceptions
