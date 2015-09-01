@@ -305,7 +305,7 @@ typedef struct jval_t jval_t;
     @param p the output function for writing the json.
     @param udata opaque user pointer passed to the output function.
 */
-void jval_print(struct json_t* jsn, jval_t val, int flags, print_func p, void* udata);
+void jval_print(const struct json_t* jsn, jval_t val, int flags, print_func p, void* udata);
 
 /*!
     @function jval_type
@@ -1181,7 +1181,7 @@ int json_load_buf(json_t* jsn, const void* buf, size_t blen, jerr_t* err);
     @param path the path of a local file.
     @return the number of bytes written, or zero if an error occured.
 */
-size_t json_print_path(json_t* jsn, int flags, const char* path);
+size_t json_print_path(const json_t* jsn, int flags, const char* path);
 
 /*!
     Writes the json doc to the file. The json format can be controlled by 
@@ -1207,7 +1207,7 @@ size_t json_print_path(json_t* jsn, int flags, const char* path);
     @param file the output FILE.
     @return the number of bytes written, or zero if an error occured.
 */
-size_t json_print_file(json_t* jsn, int flags, FILE* file);
+size_t json_print_file(const json_t* jsn, int flags, FILE* file);
 
 /*!
     Writes the json doc to the given user function. The udata is an opaque user
@@ -1222,7 +1222,7 @@ size_t json_print_file(json_t* jsn, int flags, FILE* file);
     @param udata opac user data forwarded to the print function
     @return the number of bytes written, or zero if an error occured.
 */
-size_t json_print(json_t* jsn, int flags, print_func p, void* udata);
+size_t json_print(const json_t* jsn, int flags, print_func p, void* udata);
 
 /*!
     Writes the json doc to an in memory string. The string is allocated using
@@ -1253,7 +1253,7 @@ size_t json_print(json_t* jsn, int flags, print_func p, void* udata);
     @param flags optional flags for controlling output format.
     @return the json string. Null for an error. Must be free'd by caller.
 */
-char* json_to_str(json_t* jsn, int flags);
+char* json_to_str(const json_t* jsn, int flags);
 
 /*!
     Destroys the given json_t and calls free() on the pointer.
@@ -1291,7 +1291,7 @@ void json_destroy(json_t* jsn);
     @return <0 if v1 is less then v2, >0 if v1 is greater then v2, or 0 if they 
             are equal.
 */
-int json_compare_val(json_t* jsn, jval_t v1, jval_t v2);
+int json_compare_val( const json_t* jsn, jval_t v1, jval_t v2);
 
 /*!
     Compares two json docs to one another.
@@ -1301,7 +1301,7 @@ int json_compare_val(json_t* jsn, jval_t v1, jval_t v2);
     @return <0 if j1 is less then j2, >0 if j1 is greater then j2, or 0 if they
             are equal.
 */
-int json_compare( json_t* j1, json_t* j2 );
+int json_compare( const json_t* j1, const json_t* j2 );
 
 /*!
     Retrieves the root object of the given json. 
@@ -1345,7 +1345,7 @@ jarray_t json_root_array( json_t* jsn );
     @param slen non-null output pointer to the string length.
     @return The string value, or NULL if not found / invalid.
 */
-const char* json_get_strl( json_t* jsn, jval_t val, size_t* slen );
+const char* json_get_strl( const json_t* jsn, jval_t val, size_t* slen );
 
 /*!
     Test's whether or not the given key can be found in the object.
@@ -1366,7 +1366,7 @@ jbool_t jobj_contains_key( jobj_t obj, const char* key );
                the json doc.
     @return The number value, or 0 if not found / invalid.
 */
-jnum_t json_get_num( json_t* jsn, jval_t val );
+jnum_t json_get_num( const json_t* jsn, jval_t val );
 
 /*!
     Get's an integer value from a json doc. If the value is not an integer a 0 
@@ -1378,7 +1378,7 @@ jnum_t json_get_num( json_t* jsn, jval_t val );
                the json doc.
     @return The number value, or 0 if not found / invalid.
 */
-jint_t json_get_int( json_t* jsn, jval_t val );
+jint_t json_get_int( const json_t* jsn, jval_t val );
 
 /*!
     Get's a boolean value from a json doc. If the value is not a boolean a 
@@ -1390,7 +1390,7 @@ jint_t json_get_int( json_t* jsn, jval_t val );
                the json doc.
     @return The boolean value, or JFALSE if not found / invalid.
 */
-jbool_t json_get_bool( json_t* jsn, jval_t val );
+jbool_t json_get_bool( const json_t* jsn, jval_t val );
 
 /*!
     Get's an object value from a json doc. If the value is not an object an 

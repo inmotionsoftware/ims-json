@@ -287,6 +287,8 @@ namespace ims
             return iterator(*this, idx);
         }
 
+        class const_val operator[] ( const std::string& key ) const;
+
         /**
             Gets a setter for this object with the given key. This is used for
             making key-value assignments.
@@ -505,6 +507,16 @@ namespace ims
         friend class val;
         friend class const_val;
     public:
+        static json from_str( const char* str )
+        {
+            return from_buf(str, str ? strlen(str) : 0);
+        }
+
+        static json from_str( const std::string& str )
+        {
+            return from_buf(str.data(), str.size());
+        }
+
         static json from_buf( const std::vector<char>& buf )
         {
             return from_buf(buf.data(), buf.size());
@@ -512,35 +524,36 @@ namespace ims
 
         static json from_buf( const char* buf, size_t buflen )
         {
-            // Error handling uses C++ style exceptions
-            json_t* jsn = json_new();
+            json jsn;
             jerr_t err;
-            if (json_load_buf(jsn, buf, buflen, &err) != 0)
+            if (json_load_buf(&jsn.m_jsn, buf, buflen, &err) != 0)
             {
+                // Error handling uses C++ style exceptions
                 throw std::runtime_error(err.msg);
             }
-            return json(jsn);
+            return jsn;
         }
 
         static json from_file( const std::string& path )
         {
-            // Error handling uses C++ style exceptions
-            json_t* jsn = json_new();
+            json jsn;
             jerr_t err;
-            if (json_load_path(jsn, path.c_str(), &err) != 0)
+            if (json_load_path(&jsn.m_jsn, path.c_str(), &err) != 0)
             {
+                // Error handling uses C++ style exceptions
                 throw std::runtime_error(err.msg);
             }
-            return json(jsn);
+            return jsn;
         }
 
         json()
-            : json(nullptr)
-        {}
+        {
+            json_init(&m_jsn);
+        }
 
         ~json()
         {
-            json_free(m_jsn);
+            json_destroy(&m_jsn);
         }
 
         json( const json& ) = delete;
@@ -549,13 +562,13 @@ namespace ims
         json( json&& mv )
             : m_jsn(mv.m_jsn)
         {
-            mv.m_jsn = json_new();
+            json_init(&mv.m_jsn);
         }
 
         bool operator!() const { return empty(); }
         operator bool () const { return !empty(); }
 
-        int compare( const json& j ) const { return json_compare(m_jsn, j.m_jsn); }
+        int compare( const json& j ) const { return json_compare(&m_jsn, &j.m_jsn); }
         bool operator== (const json& j) const { return compare(j) == 0; }
         bool operator!= (const json& j) const { return compare(j) != 0; }
         bool operator>= (const json& j) const { return compare(j) >= 0; }
@@ -573,7 +586,7 @@ namespace ims
             Tests whether or not this json document is null.
             @return true if this json document is null.
         */
-        bool is_null() const { return m_jsn == nullptr; }
+        bool is_null() const { return empty(); }
 
         /**
             Move assignment. Moves the internal data structure from the given
@@ -584,9 +597,9 @@ namespace ims
         */
         json& operator= ( json&& mv )
         {
-            json_free(m_jsn);
+            json_destroy(&m_jsn);
             m_jsn = mv.m_jsn;
-            mv.m_jsn = json_new();
+            json_init(&mv.m_jsn);
             return *this;
         }
 
@@ -600,13 +613,13 @@ namespace ims
             Gets the root object for this json document.
             @return the root object.
         */
-        obj root_obj() const { return json_root_obj(m_jsn); }
+        obj root_obj()  { return json_root_obj(&m_jsn); }
 
         /**
             Gets the root object for this json document.
             @return the root object.
         */
-        array root_array() const { return json_root_array(m_jsn); }
+        array root_array()  { return json_root_array(&m_jsn); }
 
         /**
             Converts this json document into a string using the given options.
@@ -621,7 +634,7 @@ namespace ims
         std::string str( int flags = JPRINT_PRETTY ) const
         {
             std::string str;
-            json_print(m_jsn, flags, [](void* ctx, const void* ptr, size_t n) -> size_t
+            json_print(&m_jsn, flags, [](void* ctx, const void* ptr, size_t n) -> size_t
             {
                 ((std::string*)ctx)->append((const char*)ptr, n);
                 return n;
@@ -635,26 +648,20 @@ namespace ims
         */
         size_t write( std::ostream& os, int opts = JPRINT_PRETTY ) const
         {
-            return json_print(m_jsn, opts, ostream_write, &os);
+            return json_print(&m_jsn, opts, ostream_write, &os);
         }
 
         /**
             Clears out the contents of the json doc, removing all keys and 
             values. The end result will be an empty json document.
         */
-        void clear() { json_clear(m_jsn); }
+        void clear() { json_clear(&m_jsn); }
 
         friend std::ostream& operator<< ( std::ostream& os, const json& j );
         friend std::istream& operator>> ( std::istream& is, json& j );
 
     protected:
-        json( json_t* j )
-            : m_jsn(j)
-        {
-            if (!m_jsn) m_jsn = json_new();
-        }
-
-        json_t* m_jsn;
+        json_t m_jsn;
     };
 
     //--------------------------------------------------------------------------
@@ -950,7 +957,7 @@ namespace ims
     class const_val
     {
     public:
-        const_val( json_t* jsn, jval_t val )
+        const_val( const json_t* jsn, jval_t val )
             : m_jsn(jsn)
             , m_val(val)
         {}
@@ -970,8 +977,8 @@ namespace ims
         operator jint_t() const { return json_get_int(m_jsn, m_val); }
         operator jnum_t() const { return json_get_num(m_jsn, m_val); }
         operator bool() const { return json_get_bool(m_jsn, m_val); }
-        operator obj() const { return json_get_obj(m_jsn, m_val); }
-        operator array() const { return json_get_array(m_jsn, m_val); }
+        operator obj() const { return json_get_obj(const_cast<json_t*>(m_jsn), m_val); }
+        operator array() const { return json_get_array(const_cast<json_t*>(m_jsn), m_val); }
         operator std::string () const
         {
             size_t slen;
@@ -993,7 +1000,7 @@ namespace ims
         friend std::ostream& operator<< ( std::ostream& os, const const_val& val );
 
     protected:
-        json_t* m_jsn;
+        const json_t* m_jsn;
         jval_t m_val;
     };
 
@@ -1010,7 +1017,7 @@ namespace ims
     {
         j.clear();
         jerr_t err;
-        if (json_load_user(j.m_jsn, &is, _json_read_istream, &err))
+        if (json_load_user(&j.m_jsn, &is, _json_read_istream, &err))
         {
             throw std::runtime_error(err.msg);
         }
@@ -1051,14 +1058,12 @@ namespace ims
     //--------------------------------------------------------------------------
     inline const_val json::root() const
     {
-        return const_val( m_jsn, json_root(m_jsn));
+        return const_val( &m_jsn, json_root(&m_jsn));
     }
 
     //--------------------------------------------------------------------------
     inline bool json::empty() const
     {
-        if (!m_jsn) return true;
-
         auto r = root();
         switch (r.type())
         {
@@ -1077,6 +1082,18 @@ namespace ims
         jval_t val = jarray_get(m_array, m_idx);
         json_t* jsn = jobj_get_json(m_array.m_array);
         return const_val(jsn, val);
+    }
+
+    //--------------------------------------------------------------------------
+    inline const_val obj::operator[] ( const std::string& key ) const
+    {
+        auto it = find(key);
+        if (it == end())
+        {
+            return const_val(jobj_get_json(m_obj), JNULL_VAL);
+        }
+
+        return (*it).second;
     }
 
     //--------------------------------------------------------------------------

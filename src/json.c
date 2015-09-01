@@ -917,7 +917,7 @@ JINLINE jmem_t jmap_get_mem( jmap_t* map )
 }
 
 //------------------------------------------------------------------------------
-JINLINE jstr_t* jmap_get_str(jmap_t* map, size_t idx)
+JINLINE jstr_t* jmap_get_str(const jmap_t* map, size_t idx)
 {
     assert(map);
     assert(idx < map->slen);
@@ -1102,7 +1102,7 @@ JINLINE void json_print_strl( jprint_t* ctx, const char* str, size_t len )
 }
 
 //------------------------------------------------------------------------------
-void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
+void _jval_print( jprint_t* ctx, const struct json_t* jsn, jval_t val, size_t depth )
 {
     switch (jval_type(val))
     {
@@ -1167,11 +1167,11 @@ void _jval_print( jprint_t* ctx, struct json_t* jsn, jval_t val, size_t depth )
         }
 
         case JTYPE_ARRAY:
-            _jarray_print(ctx, json_get_array(jsn, val), depth);
+            _jarray_print(ctx, json_get_array((json_t*)jsn, val), depth);
             break;
 
         case JTYPE_OBJ:
-            _jobj_print(ctx, json_get_obj(jsn, val), depth);
+            _jobj_print(ctx, json_get_obj((json_t*)jsn, val), depth);
             break;
 
         case JTYPE_BOOL:
@@ -1208,7 +1208,7 @@ JINLINE void json_objs_reserve( json_t* jsn, size_t res )
 }
 
 //------------------------------------------------------------------------------
-JINLINE _jobj_t* _json_get_obj( json_t* jsn, size_t idx )
+JINLINE _jobj_t* _json_get_obj( const json_t* jsn, size_t idx )
 {
     assert(jsn);
     assert( idx < jsn->objs.len );
@@ -1246,7 +1246,7 @@ JINLINE void json_arrays_reserve( json_t* jsn, size_t res )
 }
 
 //------------------------------------------------------------------------------
-JINLINE _jarray_t* _json_get_array( json_t* jsn, size_t idx )
+JINLINE _jarray_t* _json_get_array( const json_t* jsn, size_t idx )
 {
     assert(jsn);
     assert(idx < jsn->arrays.len);
@@ -1326,7 +1326,7 @@ JINLINE size_t json_add_strl( json_t* jsn, const char* str, size_t slen )
 }
 
 //------------------------------------------------------------------------------
-const char* json_get_strl( json_t* jsn, jval_t val, size_t* len )
+const char* json_get_strl( const json_t* jsn, jval_t val, size_t* len )
 {
     if (!jval_is_str(val)) return NULL;
 
@@ -1337,7 +1337,7 @@ const char* json_get_strl( json_t* jsn, jval_t val, size_t* len )
 }
 
 //------------------------------------------------------------------------------
-jint_t json_get_int( json_t* jsn, jval_t val )
+jint_t json_get_int( const json_t* jsn, jval_t val )
 {
     switch (jval_type(val))
     {
@@ -1356,7 +1356,7 @@ jint_t json_get_int( json_t* jsn, jval_t val )
 }
 
 //------------------------------------------------------------------------------
-jnum_t json_get_num( json_t* jsn, jval_t val )
+jnum_t json_get_num( const json_t* jsn, jval_t val )
 {
     switch (jval_type(val))
     {
@@ -1375,7 +1375,7 @@ jnum_t json_get_num( json_t* jsn, jval_t val )
 }
 
 //------------------------------------------------------------------------------
-jbool_t json_get_bool( json_t* jsn, jval_t val )
+jbool_t json_get_bool( const json_t* jsn, jval_t val )
 {
     switch (jval_type(val))
     {
@@ -1404,7 +1404,7 @@ jarray_t json_get_array( json_t* jsn, jval_t val )
 }
 
 //------------------------------------------------------------------------------
-JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
+JINLINE int _json_compare_val( const json_t* j1, jval_t v1, const json_t* j2, jval_t v2 )
 {
     int tdif = jval_type(v1) != jval_type(v2);
     if (tdif != 0) return tdif;
@@ -1442,8 +1442,8 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
 
         case JTYPE_ARRAY:
         {
-            jarray_t a1 = json_get_array(j1, v1);
-            jarray_t a2 = json_get_array(j2, v2);
+            jarray_t a1 = json_get_array((json_t*)j1, v1);
+            jarray_t a2 = json_get_array((json_t*)j2, v2);
 
             size_t len1 = jarray_len(a1);
             size_t len2 = jarray_len(a2);
@@ -1463,8 +1463,8 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
 
         case JTYPE_OBJ:
         {
-            jobj_t o1 = json_get_obj(j1, v1);
-            jobj_t o2 = json_get_obj(j2, v2);
+            jobj_t o1 = json_get_obj((json_t*)j1, v1);
+            jobj_t o2 = json_get_obj((json_t*)j2, v2);
 
             size_t len1 = jobj_len(o1);
             size_t len2 = jobj_len(o2);
@@ -1488,14 +1488,14 @@ JINLINE int _json_compare_val( json_t* j1, jval_t v1, json_t* j2, jval_t v2 )
 }
 
 //------------------------------------------------------------------------------
-int json_compare( json_t* j1, json_t* j2 )
+int json_compare( const json_t* j1, const json_t* j2 )
 {
     if (j1 == j2) return 0;
     return _json_compare_val(j1, json_root(j1), j2, json_root(j2));
 }
 
 //------------------------------------------------------------------------------
-int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
+int json_compare_val( const json_t* jsn, jval_t v1, jval_t v2 )
 {
     return _json_compare_val(jsn, v1, jsn, v2);
 }
@@ -1505,7 +1505,7 @@ int json_compare_val( json_t* jsn, jval_t v1, jval_t v2 )
 //------------------------------------------------------------------------------
 JINLINE _jobj_t* jobj_get_obj(jobj_t obj)
 {
-    json_t* jsn = jobj_get_json(obj);
+    const json_t* jsn = jobj_get_json(obj);
     assert(jsn);
     assert(obj.idx < jsn->objs.len);
     return _json_get_obj(jsn, obj.idx);
@@ -1534,7 +1534,7 @@ const char* jobj_get(jobj_t obj, size_t idx, jval_t* val, size_t* klen)
     assert(klen);
 
     _jobj_t* _obj = jobj_get_obj(obj);
-    json_t* jsn = jobj_get_json(obj);
+    const json_t* jsn = jobj_get_json(obj);
 
     jkv_t* kvs = (_obj->cap > BUF_SIZE) ? _obj->kvs.ptr : _obj->kvs.buf;
 
@@ -2043,7 +2043,7 @@ JINLINE void _jarray_print( jprint_t* ctx, jarray_t array, size_t depth )
 {
     jprint_char(ctx, '[');
     jprint_newline(ctx);
-    json_t* jsn = jarray_get_json(array);
+    const json_t* jsn = jarray_get_json(array);
     size_t len = jarray_len(array);
     for ( size_t i = 0; i < len; i++ )
     {
@@ -2226,7 +2226,7 @@ JINLINE size_t _json_write_buf(void* buf, const void* ptr, size_t n)
 }
 
 //------------------------------------------------------------------------------
-void jval_print(json_t* jsn, jval_t val, int flags, print_func p, void* udata)
+void jval_print(const json_t* jsn, jval_t val, int flags, print_func p, void* udata)
 {
     assert(jsn);
     jprint_t ctx;
@@ -2254,7 +2254,7 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata)
 }
 
 //------------------------------------------------------------------------------
-size_t json_print(json_t* jsn, int flags, print_func p, void* udata)
+size_t json_print(const json_t* jsn, int flags, print_func p, void* udata)
 {
     assert(jsn);
     jprint_t ctx;
@@ -2283,7 +2283,7 @@ size_t json_print(json_t* jsn, int flags, print_func p, void* udata)
 }
 
 //------------------------------------------------------------------------------
-char* json_to_str(json_t* jsn, int flags)
+char* json_to_str(const json_t* jsn, int flags)
 {
     assert(jsn);
 
@@ -2299,7 +2299,7 @@ char* json_to_str(json_t* jsn, int flags)
 }
 
 //------------------------------------------------------------------------------
-size_t json_print_path(json_t* jsn, int flags, const char* path)
+size_t json_print_path(const json_t* jsn, int flags, const char* path)
 {
     assert(jsn);
     assert(path);
@@ -2315,7 +2315,7 @@ size_t json_print_path(json_t* jsn, int flags, const char* path)
 }
 
 //------------------------------------------------------------------------------
-size_t json_print_file(json_t* jsn, int flags, FILE* f)
+size_t json_print_file(const json_t* jsn, int flags, FILE* f)
 {
     assert(jsn);
     assert(f);
