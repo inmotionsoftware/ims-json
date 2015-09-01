@@ -271,6 +271,23 @@ namespace ims
         }
 
         /**
+            Tests whether or not the value is null or unspecified for the given 
+            key.
+            
+            @param key the key.
+            @return whether or not the value is null for the specified key.
+        */
+        bool is_nil( const std::string& key ) const;
+
+        /**
+            Tests whether or not this object has a value for the given key.
+            
+            @param key the key.
+            @return whether or not this object has a value for the given key.
+        */
+        bool contains( const std::string& key ) const { return find(key) != end(); }
+
+        /**
             Finds the first value matching the key.
             
             @param key the key.
@@ -517,9 +534,10 @@ namespace ims
             return from_buf(str.data(), str.size());
         }
 
-        static json from_buf( const std::vector<char>& buf )
+        template < typename CHAR_TYPE >
+        static json from_buf( const std::vector<CHAR_TYPE>& buf )
         {
-            return from_buf(buf.data(), buf.size());
+            return from_buf( static_cast<char*>(buf.data()), buf.size() );
         }
 
         static json from_buf( const char* buf, size_t buflen )
@@ -528,7 +546,7 @@ namespace ims
             jerr_t err;
             if (json_load_buf(&jsn.m_jsn, buf, buflen, &err) != 0)
             {
-                // Error handling uses C++ style exceptions
+                jsn.clear(); // just in case...
                 throw std::runtime_error(err.msg);
             }
             return jsn;
@@ -540,11 +558,26 @@ namespace ims
             jerr_t err;
             if (json_load_path(&jsn.m_jsn, path.c_str(), &err) != 0)
             {
-                // Error handling uses C++ style exceptions
+                jsn.clear(); // just in case...
                 throw std::runtime_error(err.msg);
             }
             return jsn;
         }
+
+        explicit json( const char* str )
+        {
+            jerr_t err;
+            json_init(&m_jsn);
+            if (json_load_str(&m_jsn, str, &err) != 0)
+            {
+                clear();
+                throw std::runtime_error(err.msg);
+            }
+        }
+
+        explicit json( const std::string& str )
+            : json(str.c_str())
+        {}
 
         json()
         {
@@ -975,6 +1008,7 @@ namespace ims
 
         operator int() const { return (int)json_get_int(m_jsn, m_val); }
         operator jint_t() const { return json_get_int(m_jsn, m_val); }
+        operator size_t() const { return json_get_int(m_jsn, m_val); }
         operator jnum_t() const { return json_get_num(m_jsn, m_val); }
         operator bool() const { return json_get_bool(m_jsn, m_val); }
         operator obj() const { return json_get_obj(const_cast<json_t*>(m_jsn), m_val); }
@@ -1094,6 +1128,13 @@ namespace ims
         }
 
         return (*it).second;
+    }
+
+    //--------------------------------------------------------------------------
+    inline bool obj::is_nil( const std::string& key ) const
+    {
+        auto it = find(key);
+        return (it != end()) ? (*it).second.is_nil() : true;
     }
 
     //--------------------------------------------------------------------------

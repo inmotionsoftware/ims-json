@@ -54,7 +54,7 @@
 
 #pragma mark - constants
 
-const char JVER[32] = "0.9.1.0";
+const char JVER[32] = "0.9.1.1";
 
 #define JINLINE static __inline
 
