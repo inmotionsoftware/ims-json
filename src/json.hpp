@@ -329,8 +329,18 @@ namespace ims
         template < typename T >
         T get( const std::string& key, const T& def ) const;
 
+        std::string get( const std::string& key, const char* def ) const
+        {
+            return get(key, std::string(def));
+        }
+
         template < typename T >
-        T get_path( const std::string& key, const T& def ) const;
+        T getr( const std::string& key, const T& def ) const;
+
+        std::string getr( const std::string& key, const char* def ) const
+        {
+            return getr(key, std::string(def));
+        }
 
         class const_val operator[] ( const std::string& key ) const;
 
@@ -1197,7 +1207,7 @@ namespace ims
 
     //--------------------------------------------------------------------------
     template < typename T >
-    T obj::get_path( const std::string& key, const T& def ) const
+    T obj::getr( const std::string& key, const T& def ) const
     {
         auto it = findr(key);
         if (it == end()) return def;
