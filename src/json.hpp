@@ -304,6 +304,34 @@ namespace ims
             return iterator(*this, idx);
         }
 
+        /**
+            Recursively search this object to find a match. 
+            
+            example:
+
+            my/nested/key
+            
+            would match a json doc like this:
+            {
+                "my": {
+                    "nested": {
+                        "key": "value"
+                    }
+                }
+            }
+            
+            @param keypath a '/' delimited path to the json value.
+            @return an iterator pointing to the value, or an iterator equal to 
+                    the end iterator if not found.
+        */
+        iterator findr( const std::string& key ) const;
+
+        template < typename T >
+        T get( const std::string& key, const T& def ) const;
+
+        template < typename T >
+        T get_path( const std::string& key, const T& def ) const;
+
         class const_val operator[] ( const std::string& key ) const;
 
         /**
@@ -608,6 +636,9 @@ namespace ims
         bool operator> (const json& j) const { return compare(j) > 0; }
         bool operator< (const json& j) const { return compare(j) < 0; }
         bool operator<= (const json& j) const { return compare(j) <= 0; }
+
+        obj::iterator findr( const std::string& key ) const;
+        obj::iterator find( const std::string& key ) const;
 
         /**
             Tests whether or not this json document is empty or null.
@@ -1128,6 +1159,53 @@ namespace ims
         }
 
         return (*it).second;
+    }
+
+    //--------------------------------------------------------------------------
+    template < typename T >
+    T obj::get( const std::string& key, const T& def ) const
+    {
+        auto it = find(key);
+        if (it == end()) return def;
+
+        const auto& val = (*it).second;
+        if (val.is_nil()) return def;
+        
+        return val;
+    }
+
+    //--------------------------------------------------------------------------
+    obj::iterator obj::findr( const std::string& key ) const
+    {
+        auto idx = key.find_first_of('/');
+        if (idx != std::string::npos)
+        {
+            const std::string path = key.substr(0, idx);
+            auto it = find(path);
+            if (it == end()) return it;
+
+            auto rt = (*it).second;
+            if (rt.is_obj())
+            {
+                ims::obj obj = rt;
+                return obj.findr(key.substr(idx+1));
+            }
+        }
+
+        return find(key);
+    }
+
+    //--------------------------------------------------------------------------
+    template < typename T >
+    T obj::get_path( const std::string& key, const T& def ) const
+    {
+        auto it = findr(key);
+        if (it == end()) return def;
+
+        const auto& val = (*it).second;
+        if (val.is_nil()) return def;
+        
+        return val;
     }
 
     //--------------------------------------------------------------------------
