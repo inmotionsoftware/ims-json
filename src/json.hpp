@@ -34,6 +34,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <list>
 
 namespace ims
 {
@@ -120,7 +121,20 @@ namespace ims
             void operator= ( jint_t i ) { jobj_add_int(m_obj, m_key, i); }
             void operator= ( bool b ) { jobj_add_bool(m_obj, m_key, b); }
             void operator= ( std::nullptr_t ) { jobj_add_nil(m_obj, m_key); }
+            void operator= ( void* ) = delete; // error on pointer assignment
             void operator= ( const class val& v );
+
+            template < typename T >
+            void operator= ( const std::vector<T>& vec );
+
+            template < typename T >
+            void operator= ( const std::list<T>& vec );
+
+            template < typename T >
+            void operator= ( const std::initializer_list<T>& vec );
+
+            template < typename T >
+            void operator= ( const std::map<std::string,T>& vec );
 
             class array add_array();
 
@@ -524,6 +538,38 @@ namespace ims
 
     //--------------------------------------------------------------------------
     inline array obj::setter::add_array() { return jobj_add_array(m_obj, m_key); }
+
+    //--------------------------------------------------------------------------
+    template < typename T >
+    inline void obj::setter::operator= ( const std::vector<T>& vec )
+    {
+        auto dst = add_array();
+        for ( const auto& val : vec ) dst.push_back(val);
+    }
+
+    //--------------------------------------------------------------------------
+    template < typename T >
+    inline void obj::setter::operator= ( const std::list<T>& vec )
+    {
+        auto dst = add_array();
+        for ( const auto& val : vec ) dst.push_back(val);
+    }
+
+    //--------------------------------------------------------------------------
+    template < typename T >
+    inline void obj::setter::operator= ( const std::initializer_list<T>& vec )
+    {
+        auto dst = add_array();
+        for ( const auto& val : vec ) dst.push_back(val);
+    }
+
+    //--------------------------------------------------------------------------
+    template < typename T >
+    inline void obj::setter::operator= ( const std::map<std::string, T>& map )
+    {
+        auto dst = add_obj();
+        for ( const auto& pair : map ) dst[pair.first] = pair.second;
+    }
 
     //--------------------------------------------------------------------------
     template < typename... ARGS >
@@ -1173,7 +1219,7 @@ namespace ims
 
     //--------------------------------------------------------------------------
     template < typename T >
-    T obj::get( const std::string& key, const T& def ) const
+    inline T obj::get( const std::string& key, const T& def ) const
     {
         auto it = find(key);
         if (it == end()) return def;
@@ -1185,7 +1231,7 @@ namespace ims
     }
 
     //--------------------------------------------------------------------------
-    obj::iterator obj::findr( const std::string& key ) const
+    inline obj::iterator obj::findr( const std::string& key ) const
     {
         auto idx = key.find_first_of('/');
         if (idx != std::string::npos)
@@ -1207,7 +1253,7 @@ namespace ims
 
     //--------------------------------------------------------------------------
     template < typename T >
-    T obj::getr( const std::string& key, const T& def ) const
+    inline T obj::getr( const std::string& key, const T& def ) const
     {
         auto it = findr(key);
         if (it == end()) return def;
