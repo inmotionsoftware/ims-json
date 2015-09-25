@@ -491,6 +491,16 @@ void jobj_add_nil( jobj_t obj, const char* key );
 */
 jobj_t jobj_add_obj( jobj_t obj, const char* key );
 
+/**
+    Performs a copy of a json object into another one. If the both objects are
+    from the same json doc a shallow copy is performed, otherwise a deep copy is
+    used.
+    
+    @param dst the destination to copy to.
+    @param src the source to copy from.
+*/
+void jobj_copy( jobj_t dst, const jobj_t src );
+
 /*!
     @function jobj_findl
     Finds the first matching key.
@@ -714,6 +724,16 @@ typedef struct jarray_t jarray_t;
     @param n the additional amount to reserve.
 */
 void jarray_reserve( jarray_t a, size_t n );
+
+/**
+    Performs a copy of a json array into another. If the src and dst are from 
+    the same json document, a shallow copy is performed, otherwise a deep copy
+    is used.
+    
+    @param dst the destination to copy to.
+    @param src the source to copy from.
+*/
+void jarray_copy( jarray_t dst, const jarray_t src );
 
 /*!
     Appends a number to the end of array.
@@ -1281,6 +1301,23 @@ void json_destroy(json_t* jsn);
 */
 #define json_root(JSN) (JSN)->root
 
+/**
+    Performs a deep copy of src json into dst json. The destination json doc
+    is cleared out before-hand.
+    
+    @param dst the destination json doc.
+    @param src the source json doc.
+*/
+void json_copy( json_t* dst, const json_t* src );
+
+/**
+    Peforms a deep copy of src json into a newly allocated json doc.
+    
+    @param src the source json doc.
+    @return a deeply cloned copy of src.
+*/
+json_t* json_clone( const json_t* src );
+
 /*!
     Compares one value to another in the same json doc. Undefined if either 
     value is not part of the given json doc.
@@ -1472,6 +1509,7 @@ typedef struct jmem_stats_t jmem_stats_t;
     @return data structure reporting the amount of memory used and reserved.
 */
 jmem_stats_t json_get_mem( json_t* jsn );
+
 
 #ifdef __cplusplus
 } // namespace

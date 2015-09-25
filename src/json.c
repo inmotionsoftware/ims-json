@@ -3486,6 +3486,248 @@ jmem_stats_t json_get_mem(json_t* jsn)
 }
 
 //------------------------------------------------------------------------------
+void _jarray_shallow_copy( jarray_t dst, const jarray_t src )
+{
+    assert ( dst.json == src.json );
+    if ( dst.idx == src.idx ) return;
+
+    // TODO: clear / destroy our json array
+
+    // make sure we have enough space...
+    jarray_reserve(dst, jarray_len(src));
+
+    _jarray_t* _dst = _jarray_get_array(dst);
+    _jarray_t* _src = _jarray_get_array(src);
+
+    if (_src->len > BUF_SIZE)
+    {
+        memcpy(_dst->vals.ptr, _src->vals.ptr, sizeof(jval_t)*_src->len);
+    }
+    else
+    {
+        memcpy(_dst->vals.buf, _src->vals.buf, sizeof(jval_t)*_src->len);
+    }
+    _dst->len = _src->len;
+}
+
+//------------------------------------------------------------------------------
+void _jarray_deep_copy( jarray_t dst, const jarray_t src )
+{
+    jarray_reserve(dst, jarray_len(src));
+
+    // cache our json obj
+    json_t* src_jsn = jarray_get_json(src);
+
+    // loop through and copy each element
+    for ( size_t i = 0; i < jarray_len(src); i++ )
+    {
+        jval_t val = jarray_get(src, i);
+        switch( jval_type(val) )
+        {
+            case JTYPE_NIL:
+                jarray_add_nil(dst);
+                break;
+
+            case JTYPE_STR:
+            {
+                size_t slen;
+                jarray_add_strl(dst, jarray_get_strl(src, i, &slen), slen);
+                break;
+            }
+
+            case JTYPE_NUM:
+                jarray_add_num(dst, json_get_num(src_jsn, val));
+                break;
+
+            case JTYPE_OBJ:
+                jobj_copy(jarray_add_obj(dst), json_get_obj(src_jsn, val));
+                break;
+
+            case JTYPE_BOOL:
+                jarray_add_bool(dst, json_get_bool(src_jsn, val));
+                break;
+
+            case JTYPE_INT:
+            case JTYPE_SHORT:
+                jarray_add_int(dst, json_get_int(src_jsn, val));
+                break;
+                
+            case JTYPE_ARRAY:
+                jarray_copy(jarray_add_array(dst), json_get_array(src_jsn, val));
+                break;
+
+            default:
+                break;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+void jarray_copy( jarray_t dst, const jarray_t src )
+{
+    if (dst.json == src.json)
+    {
+        _jarray_shallow_copy(dst, src);
+    }
+    else
+    {
+        _jarray_deep_copy(dst, src);
+    }
+}
+
+//------------------------------------------------------------------------------
+JINLINE void _jobj_shallow_copy( jobj_t dst, const jobj_t src )
+{
+    assert ( dst.json == src.json );
+    if ( dst.idx == src.idx ) return;
+
+    // TODO: clear / destroy our json obj
+
+    // make sure we have enough space...
+    jobj_reserve(dst, jobj_len(src));
+
+    _jobj_t* _dst = jobj_get_obj(dst);
+    _jobj_t* _src = jobj_get_obj(src);
+
+    if (_src->len > BUF_SIZE)
+    {
+        memcpy(_dst->kvs.ptr, _src->kvs.ptr, sizeof(jkv_t)*_src->len);
+    }
+    else
+    {
+        memcpy(_dst->kvs.buf, _src->kvs.buf, sizeof(jkv_t)*_src->len);
+    }
+    _dst->len = _src->len;
+}
+
+//------------------------------------------------------------------------------
+JINLINE void _jobj_deep_copy( jobj_t dst, const jobj_t src )
+{
+    // cache our json obj
+    json_t* src_jsn = jobj_get_json(src);
+
+    // reserve enough space
+    jobj_reserve(dst, jobj_len(src));
+
+    // loop through and copy each element
+    for ( size_t i = 0; i < jobj_len(src); i++ )
+    {
+        jval_t val;
+        size_t klen;
+        const char* key = jobj_get(src, i, &val, &klen);
+
+        switch( jval_type(val) )
+        {
+            case JTYPE_NIL:
+                jobj_add_nil(dst, key);
+                break;
+
+            case JTYPE_STR:
+            {
+                size_t slen;
+                jobj_add_strl(dst, key, json_get_strl(src_jsn, val, &slen), slen);
+                break;
+            }
+
+            case JTYPE_NUM:
+                jobj_add_num(dst, key, json_get_num(src_jsn, val));
+                break;
+
+            case JTYPE_OBJ:
+                jobj_copy(jobj_add_obj(dst, key), json_get_obj(src_jsn, val));
+                break;
+
+            case JTYPE_BOOL:
+                jobj_add_bool(dst, key, json_get_bool(src_jsn, val));
+                break;
+
+            case JTYPE_INT:
+            case JTYPE_SHORT:
+                jobj_add_int(dst, key, json_get_int(src_jsn, val));
+                break;
+                
+            case JTYPE_ARRAY:
+                jarray_copy(jobj_add_array(dst, key), json_get_array(src_jsn, val));
+                break;
+
+            default:
+                break;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+void jobj_copy( jobj_t dst, const jobj_t src )
+{
+    if (dst.json == src.json)
+    {
+        _jobj_shallow_copy(dst, src);
+    }
+    else
+    {
+        _jobj_deep_copy(dst, src);
+    }
+}
+
+//------------------------------------------------------------------------------
+json_t* json_clone( const json_t* src )
+{
+    json_t* copy = json_new();
+    json_copy(copy, src);
+    return copy;
+}
+
+//------------------------------------------------------------------------------
+void json_copy( json_t* dst, const json_t* src )
+{
+    if (dst == src) return;
+
+    // const correctness :(
+    json_t* _src = (json_t*)src;
+
+    json_clear(dst);
+
+//    dst->root = src->root;
+//
+//    json_ints_reserve(dst, src->ints.len);
+//    dst->ints.len = src->ints.len;
+//    if (src->ints.len > 0)
+//    {
+//        memcpy(dst->ints.ptr, src->ints.ptr, sizeof(*src->ints.ptr) * src->ints.len);
+//    }
+//
+//    json_nums_reserve(dst, src->nums.len);
+//    dst->nums.len = src->nums.len;
+//    if (src->nums.len > 0)
+//    {
+//        memcpy(dst->nums.ptr, src->nums.ptr, sizeof(*src->nums.ptr) * src->nums.len);
+//    }
+//
+//    dst->strmap.seed = src->strmap.seed;
+//    dst->strmap.blen = src->strmap.blen;
+//
+//    dst->strmap.slen = src->strmap.slen;
+//
+//    dst->strmap.slen = src->strmap.slen;
+
+
+    jval_t root = json_root(src);
+    switch(jval_type(root))
+    {
+        case JTYPE_ARRAY:
+            jarray_copy( json_root_array(dst), json_get_array(_src, root));
+            break;
+
+        case JTYPE_OBJ:
+            jobj_copy( json_root_obj(dst), json_get_obj(_src, root));
+            break;
+
+        default:
+            break;
+    }
+}
+
+//------------------------------------------------------------------------------
 JINLINE void compile_macros()
 {
     json_t* jsn = json_new();

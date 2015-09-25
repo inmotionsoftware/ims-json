@@ -54,6 +54,40 @@ namespace ims
 
         typedef std::pair<std::string, class const_val> key_val;
 
+        obj( const obj& o ) = delete;
+        obj& operator= ( const obj& o ) = delete;
+
+//        obj( const obj& o )
+//        {
+//            jobj_copy(m_obj, o.m_obj);
+//        }
+//
+//        obj& operator= ( const obj& o )
+//        {
+//            if (this != &o)
+//            {
+//                jobj_copy(m_obj, o.m_obj);
+//            }
+//            return *this;
+//        }
+
+
+        obj( obj&& mv )
+            : m_obj(mv.m_obj)
+        {
+            mv.m_obj = JNULL_OBJ;
+        }
+
+        obj& operator= ( obj&& mv )
+        {
+            if ( this != &mv )
+            {
+                m_obj = mv.m_obj;
+                mv.m_obj = JNULL_OBJ;
+            }
+            return *this;
+        }
+
         /**
             object iterator. Iterates each key-value pair in the parent object.
         */
@@ -343,19 +377,70 @@ namespace ims
         template < typename T >
         T get( const std::string& key, const T& def ) const;
 
+        /**
+            Gets the value of the given key if found, otherwise returns the
+            def value.
+            
+            @param key the key to lookup.
+            @param def the default value returned if the key was not found.
+        */
         std::string get( const std::string& key, const char* def ) const
         {
             return get(key, std::string(def));
         }
 
+        /**
+            Recursively searchs for key, if found, returns the value, otherwise
+            returns the def value.
+            
+            @code
+            {
+                "obj": 
+                {
+                    "key": "match"
+                }
+            }
+            
+            auto it1 = jsn.getr("obj/key", "<empty>"); // returns "match"
+            auto it2 = jsn.getr("obj/not_found", "<empty>"); // returns "<empty>"
+            @endcode
+            
+            @param key the path / key to lookup.
+            @param def the default value returned if the key was not found.
+        */
         template < typename T >
         T getr( const std::string& key, const T& def ) const;
 
+        /**
+            Gets the value of the given key if found, otherwise returns the
+            def value.
+            
+            @code
+            {
+                "obj": 
+                {
+                    "key": "match"
+                }
+            }
+            
+            auto it1 = jsn.getr("obj/key", "<empty>"); // returns "match"
+            auto it2 = jsn.getr("obj/not_found", "<empty>"); // returns "<empty>"
+            @endcode
+            
+            @param key the key to lookup.
+            @param def the default value returned if the key was not found.
+        */
         std::string getr( const std::string& key, const char* def ) const
         {
             return getr(key, std::string(def));
         }
 
+        /**
+            Retrieves a value for the given key, or a nil const_val otherwise.
+            
+            @param key the key.
+            @return the value of the key, or a nil value if not found.
+        */
         class const_val operator[] ( const std::string& key ) const;
 
         /**
@@ -403,6 +488,18 @@ namespace ims
         class array add_array( const char* key );
 
         friend std::ostream& operator<< ( std::ostream& os, const obj& o );
+
+        /**
+            Copies the contents of this obj into another.
+            
+            @param o the object to copy into.
+            @return *this
+        */
+        const obj& copy_to( obj& o ) const
+        {
+            jobj_copy(o.m_obj, m_obj);
+            return *this;
+        }
 
     protected:
 
@@ -454,6 +551,40 @@ namespace ims
             const array& m_array;
             size_t m_idx;
         };
+
+        array( const array& copy ) = delete;
+        array& operator= ( const array& copy ) = delete;
+
+//        array( const array& copy )
+//            : m_array()
+//        {
+//            jarray_copy(m_array, copy.m_array);
+//        }
+//
+//        array& operator= ( const array& copy )
+//        {
+//            if (this != &copy)
+//            {
+//                jarray_copy(m_array, copy.m_array);
+//            }
+//            return *this;
+//        }
+
+        array( array&& mv )
+            : m_array(mv.m_array)
+        {
+            mv.m_array = JNULL_ARRAY;
+        }
+
+        array& operator=( array&& mv )
+        {
+            if (this != &mv)
+            {
+                m_array = mv.m_array;
+                mv.m_array = JNULL_ARRAY;
+            }
+            return *this;
+        }
 
         /**
             Pushes a new object on to the end of this array and returns a 
@@ -518,6 +649,18 @@ namespace ims
         }
 
         array& push_back( const val& val );
+
+        /**
+            Copies the contents of this array into another.
+            
+            @param a the array to copy into.
+            @return *this
+        */
+        const array& copy_to( array& a ) const
+        {
+            jarray_copy(a.m_array, m_array);
+            return *this;
+        }
 
         friend std::ostream& operator<< ( std::ostream& os, const array& a );
 
@@ -673,8 +816,19 @@ namespace ims
             json_destroy(&m_jsn);
         }
 
-        json( const json& ) = delete;
-        json& operator= ( const json& ) = delete;
+        json( const json& jsn )
+        {
+            json_copy(&m_jsn, &jsn.m_jsn);
+        }
+        
+        json& operator= ( const json& jsn )
+        {
+            if (this != &jsn)
+            {
+                json_copy(&m_jsn, &jsn.m_jsn);
+            }
+            return *this;
+        }
 
         json( json&& mv )
             : m_jsn(mv.m_jsn)
@@ -693,7 +847,39 @@ namespace ims
         bool operator< (const json& j) const { return compare(j) < 0; }
         bool operator<= (const json& j) const { return compare(j) <= 0; }
 
+        /**
+            Performs a recursive search through the json document and returns
+            the first match. If not match is found, jsn.end() is returned.
+            
+            @details
+            you can use path notation to deep search a json doc.
+
+            @code
+            {
+                "obj": 
+                {
+                    "key": "match"
+                }
+            }
+            
+            auto it = jsn.search("obj/key"); // returns "match"
+            @endcode
+            
+            @param key the key to search.
+            @return an iterator pointing to the first result, or end() if none 
+                    were found.
+        */
         obj::iterator findr( const std::string& key ) const;
+
+        /**
+            Finds the first matching key from the root document. This is 
+            equivalent to:
+            
+            @code
+            auto it = jsn.root_obj().find(key);
+            @endcode
+
+        */
         obj::iterator find( const std::string& key ) const;
 
         /**
