@@ -3624,7 +3624,7 @@ JINLINE void _jobj_deep_copy( jobj_t dst, const jobj_t src )
 
             case JTYPE_STR:
             {
-                size_t slen;
+                size_t slen = 0;
                 jobj_add_strl(dst, key, json_get_strl(src_jsn, val, &slen), slen);
                 break;
             }
