@@ -847,6 +847,17 @@ namespace ims
         bool operator< (const json& j) const { return compare(j) < 0; }
         bool operator<= (const json& j) const { return compare(j) <= 0; }
 
+        void set_root( const std::map<std::string, val>& obj );
+
+        void set_root( const std::list<val>& );
+        void set_root( const std::vector<val>& );
+        void set_root( const std::initializer_list<val>& );
+
+//        ims::obj::setter operator[]( void )
+//        {
+//            return ims::obj::setter(nullptr, json_root_obj(m_jsn));
+//        }
+
         /**
             Performs a recursive search through the json document and returns
             the first match. If not match is found, jsn.end() is returned.
@@ -1360,6 +1371,38 @@ namespace ims
             jsn.write(os);
         }
         return os;
+    }
+
+    //--------------------------------------------------------------------------
+    inline void json::set_root( const std::list<val>& list)
+    {
+        clear();
+        auto dst = root_array();
+        for ( const auto& item : list ) dst.push_back(item);
+    }
+
+    //--------------------------------------------------------------------------
+    inline void json::set_root( const std::vector<val>& list)
+    {
+        clear();
+        auto dst = root_array();
+        for ( const auto& item : list ) dst.push_back(item);
+    }
+
+    //--------------------------------------------------------------------------
+    inline void json::set_root( const std::initializer_list<val>& list)
+    {
+        clear();
+        auto dst = root_array();
+        for ( const auto& item : list ) dst.push_back(item);
+    }
+
+    //--------------------------------------------------------------------------
+    inline void json::set_root( const std::map<std::string, val>& map )
+    {
+        clear();
+        auto dst = root_obj();
+        for ( const auto& pair : map ) dst[pair.first] = pair.second;
     }
 
     //--------------------------------------------------------------------------
