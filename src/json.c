@@ -2389,18 +2389,15 @@ jobj_t json_root_obj( json_t* jsn )
     {
         case JTYPE_NIL:
             json_add_obj(jsn);
-            break;
 
         case JTYPE_OBJ:
-            break;
+            assert(jsn->objs.len > 0);
+            return (jobj_t){jsn, jsn->root.idx};
 
         default:
             assert(JFALSE);
-            break;
+            return (jobj_t){NULL, 0};
     }
-
-    assert(jsn->objs.len > 0);
-    return (jobj_t){jsn, jsn->root.idx};
 }
 
 //------------------------------------------------------------------------------
@@ -2413,18 +2410,15 @@ jarray_t json_root_array( json_t* jsn )
     {
         case JTYPE_NIL:
             json_add_array(jsn);
-            break;
 
         case JTYPE_ARRAY:
-            break;
+            assert(jsn->arrays.len > 0);
+            return (jarray_t){jsn, jsn->root.idx};
 
         default:
             assert(JFALSE);
-            break;
+            return (jarray_t){NULL, 0};
     }
-
-    assert(jsn->arrays.len > 0);
-    return (jarray_t){jsn, jsn->root.idx};
 }
 
 #pragma mark - jcontext_t

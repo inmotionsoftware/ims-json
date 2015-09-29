@@ -54,8 +54,8 @@ namespace ims
 
         typedef std::pair<std::string, class const_val> key_val;
 
-        obj( const obj& o ) = delete;
-        obj& operator= ( const obj& o ) = delete;
+//        obj( const obj& o ) = delete;
+//        obj& operator= ( const obj& o ) = delete;
 
 //        obj( const obj& o )
 //        {
@@ -71,22 +71,21 @@ namespace ims
 //            return *this;
 //        }
 
-
-        obj( obj&& mv )
-            : m_obj(mv.m_obj)
-        {
-            mv.m_obj = JNULL_OBJ;
-        }
-
-        obj& operator= ( obj&& mv )
-        {
-            if ( this != &mv )
-            {
-                m_obj = mv.m_obj;
-                mv.m_obj = JNULL_OBJ;
-            }
-            return *this;
-        }
+//        obj( obj&& mv )
+//            : m_obj(mv.m_obj)
+//        {
+//            mv.m_obj = JNULL_OBJ;
+//        }
+//
+//        obj& operator= ( obj&& mv )
+//        {
+//            if ( this != &mv )
+//            {
+//                m_obj = mv.m_obj;
+//                mv.m_obj = JNULL_OBJ;
+//            }
+//            return *this;
+//        }
 
         /**
             object iterator. Iterates each key-value pair in the parent object.
@@ -94,19 +93,22 @@ namespace ims
         class iterator
         {
         public:
-            explicit iterator( const obj& o, size_t idx = std::numeric_limits<size_t>::max())
+            explicit iterator( const jobj_t o, size_t idx = std::numeric_limits<size_t>::max())
                 : m_idx(idx)
-                , m_obj(o)
+                , m_parent(o)
             {}
 
             bool operator!= ( const iterator& it ) const { return !this->operator==(it); }
-            bool operator== ( const iterator& it ) const { return it.m_idx == m_idx && m_obj == it.m_obj; }
-            iterator operator++ (int) { return iterator(m_obj, m_idx++); }
+            bool operator== ( const iterator& it ) const
+            {
+                return it.m_idx == m_idx && m_parent.json == it.m_parent.json && m_parent.idx && it.m_parent.idx;
+            }
+            iterator operator++ (int) { return iterator(m_parent, m_idx++); }
             iterator& operator++ () { m_idx++; return *this; }
             key_val operator*() const;
 
         protected:
-            const obj& m_obj;
+            const jobj_t m_parent;
             size_t m_idx;
         };
 
@@ -552,8 +554,8 @@ namespace ims
             size_t m_idx;
         };
 
-        array( const array& copy ) = delete;
-        array& operator= ( const array& copy ) = delete;
+//        array( const array& copy ) = delete;
+//        array& operator= ( const array& copy ) = delete;
 
 //        array( const array& copy )
 //            : m_array()
@@ -569,22 +571,22 @@ namespace ims
 //            }
 //            return *this;
 //        }
-
-        array( array&& mv )
-            : m_array(mv.m_array)
-        {
-            mv.m_array = JNULL_ARRAY;
-        }
-
-        array& operator=( array&& mv )
-        {
-            if (this != &mv)
-            {
-                m_array = mv.m_array;
-                mv.m_array = JNULL_ARRAY;
-            }
-            return *this;
-        }
+//
+//        array( array&& mv )
+//            : m_array(mv.m_array)
+//        {
+//            mv.m_array = JNULL_ARRAY;
+//        }
+//
+//        array& operator=( array&& mv )
+//        {
+//            if (this != &mv)
+//            {
+//                m_array = mv.m_array;
+//                mv.m_array = JNULL_ARRAY;
+//            }
+//            return *this;
+//        }
 
         /**
             Pushes a new object on to the end of this array and returns a 
@@ -914,9 +916,12 @@ namespace ims
         */
         json& operator= ( json&& mv )
         {
-            json_destroy(&m_jsn);
-            m_jsn = mv.m_jsn;
-            json_init(&mv.m_jsn);
+            if (this != &mv)
+            {
+                json_destroy(&m_jsn);
+                m_jsn = mv.m_jsn;
+                json_init(&mv.m_jsn);
+            }
             return *this;
         }
 
@@ -1472,8 +1477,10 @@ namespace ims
             auto rt = (*it).second;
             if (rt.is_obj())
             {
-                ims::obj obj = rt;
-                return obj.findr(key.substr(idx+1));
+                const ims::obj& obj = rt;
+                auto it = obj.findr(key.substr(idx+1));
+//                return it;
+                return (it == obj.end()) ? end() : it;
             }
         }
 
@@ -1505,8 +1512,10 @@ namespace ims
     {
         jval_t val;
         size_t klen;
-        const char* key = jobj_get(m_obj, m_idx, &val, &klen);
-        json_t* jsn = jobj_get_json(m_obj.m_obj);
+        json_t* jsn = jobj_get_json(m_parent);
+        assert(jsn);
+
+        const char* key = jobj_get(m_parent, m_idx, &val, &klen);
         return std::make_pair(std::string(key, klen), const_val(jsn, val) );
     }
 }
