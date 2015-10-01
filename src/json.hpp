@@ -101,7 +101,7 @@ namespace ims
             bool operator!= ( const iterator& it ) const { return !this->operator==(it); }
             bool operator== ( const iterator& it ) const
             {
-                return it.m_idx == m_idx && m_parent.json == it.m_parent.json && m_parent.idx && it.m_parent.idx;
+                return it.m_idx == m_idx && m_parent.json == it.m_parent.json && m_parent.idx == it.m_parent.idx;
             }
             iterator operator++ (int) { return iterator(m_parent, m_idx++); }
             iterator& operator++ () { m_idx++; return *this; }
