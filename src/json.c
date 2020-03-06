@@ -23,6 +23,13 @@
     THE SOFTWARE.
 */
 
+#if (_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600)
+    #ifdef _GNU_SOURCE
+        // disable the GNU specific variant of strerror_r
+        #undef _GNU_SOURCE
+    #endif
+#endif
+
 #include "json.h"
 #include <math.h>
 #include <errno.h>
@@ -38,6 +45,12 @@
 #include <time.h>
 
 #pragma mark - macros
+
+#ifdef __cplusplus
+using namespace ims;
+extern "C" {
+#endif
+
 
 // check to see if we have posix support
 #if (!defined(_WIN32) && (defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))))
@@ -117,6 +130,8 @@ struct jcontext_t
     jerr_t* err;
 
     jmp_buf jerr_jmp;
+
+    jbool_t is_stream;
 
     jbuf_t strbuf; // buffer for temporarily storing the key string
 };
@@ -674,11 +689,13 @@ JINLINE jhash_t jstr_hash(const char *key, size_t len, jhash_t seed)
 	jhash_t hash = seed;
  
 	const size_t nblocks = len / sizeof(jhash_t);
-	const jhash_t *blocks = (const jhash_t *) key;
 
 	for (size_t i = 0; i < nblocks; i++)
     {
-		jhash_t k = blocks[i];
+        jhash_t k;
+        // use memcpy here to avoid unaligned read issues
+        memcpy(&k, key + i * sizeof(jhash_t), sizeof(jhash_t)); // k = blocks[i]
+
 		k *= c1;
 		k = (k << r1) | (k >> (32 - r1));
 		k *= c2;
@@ -690,12 +707,12 @@ JINLINE jhash_t jstr_hash(const char *key, size_t len, jhash_t seed)
 	const uint8_t *tail = (const uint8_t *) (key + nblocks * 4);
 	jhash_t k1 = 0;
  
-	switch (len & 3)
+	switch (len & 0x3u)
     {
         case 3:
-            k1 ^= tail[2] << 16;
+            k1 ^= (tail[2] << 16u);
         case 2:
-            k1 ^= tail[1] << 8;
+            k1 ^= (tail[1] << 8u);
         case 1:
             k1 ^= tail[0];
             k1 *= c1;
@@ -706,11 +723,11 @@ JINLINE jhash_t jstr_hash(const char *key, size_t len, jhash_t seed)
 	}
  
 	hash ^= len;
-	hash ^= (hash >> 16);
+	hash ^= (hash >> 16u);
 	hash *= 0x85ebca6b;
-	hash ^= (hash >> 13);
+	hash ^= (hash >> 13u);
 	hash *= 0xc2b2ae35;
-	hash ^= (hash >> 16);
+	hash ^= (hash >> 16u);
  
 	return hash;
 }
@@ -800,8 +817,14 @@ JINLINE void jmap_reserve_str( jmap_t* map, size_t len )
     if (map->slen+len <= map->scap)
         return;
 
-    map->scap = grow(map->slen+len, map->scap);
-    map->strs = (jstr_t*)jrealloc(map->strs, sizeof(jstr_t)*map->scap);
+    size_t cap = grow(map->slen+len, map->scap);
+    jstr_t* ptr = (jstr_t*)jrealloc(map->strs, sizeof(jstr_t)*cap);
+    assert(ptr);
+    if (ptr)
+    {
+        map->scap = cap;
+        map->strs = ptr;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -827,8 +850,15 @@ JINLINE void jmap_bucket_reserve( jmapbucket_t* bucket, size_t len )
         return;
 
     // grow bucket now
-    bucket->cap = grow(bucket->len+len, bucket->cap);
-    bucket->slots = (size_t*)jrealloc( bucket->slots, sizeof(size_t) * bucket->cap );
+
+    size_t cap = grow(bucket->len+len, bucket->cap);
+    size_t* ptr = (size_t*)jrealloc( bucket->slots, sizeof(size_t) * cap );
+    if (ptr)
+    {
+        bucket->cap = cap;
+        bucket->slots = ptr;
+    }
+    assert(ptr);
 }
 
 //------------------------------------------------------------------------------
@@ -1047,9 +1077,9 @@ JINLINE void json_print_strl( jprint_t* ctx, const char* str, size_t len )
                 jprint_const(ctx, "\\t");
                 break;
 
-            case '/':
-                jprint_const(ctx, "\\/");
-                break;
+//            case '/':
+//                jprint_const(ctx, "\\/");
+//                break;
 
             default:
             {
@@ -1101,6 +1131,46 @@ JINLINE void json_print_strl( jprint_t* ctx, const char* str, size_t len )
     jprint_char(ctx, '\"');
 }
 
+size_t _jnum_tostr(char* buf, size_t buflen, jnum_t val, int precision)
+{
+    if (precision == 0) precision = 16;
+
+    // We want to make sure this ends up as a floating point value.
+    // 1) Output the value into a buffer using printf
+    // 2) Check to see if it was output as an integer or floating point
+    // 3) If it's an integer make it a float by adding a decimal point
+    size_t len = jsnprintf(buf, buflen, "%.*g", precision, val);
+    assert(len > 0);
+
+    // check for floating point markers
+    jbool_t isfloat = JFALSE;
+    for ( size_t i = 0; i < len && !isfloat; i++ )
+    {
+        switch (buf[i])
+        {
+            case 'e':
+            case 'E':
+            case '.':
+                isfloat = JTRUE;
+                i = len; // force our loop to end
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    // make sure this ends up as a floating point value.
+    if (!isfloat && len > 0 && buflen > len && (buflen - len) > 2)
+    {
+        buf[len++] = '.';
+        buf[len++] = '0';
+        buf[len] = 0;
+    }
+
+    return len;
+}
+
 //------------------------------------------------------------------------------
 void _jval_print( jprint_t* ctx, const struct json_t* jsn, jval_t val, size_t depth )
 {
@@ -1129,40 +1199,9 @@ void _jval_print( jprint_t* ctx, const struct json_t* jsn, jval_t val, size_t de
 
         case JTYPE_NUM:
         {
-            // We want to make sure this ends up as a floating point value.
-            // 1) Output the value into a buffer using printf
-            // 2) Check to see if it was output as an integer or floating point
-            // 3) If it's an integer make it a float by adding a decimal point
-            char buf[30];
-            size_t len = jsnprintf(buf, sizeof(buf), "%0.17g", json_get_num(jsn, val));
-            assert(len > 0);
-
-            // dump buffer
+            char buf[32] = {0};
+            size_t len = _jnum_tostr(buf, sizeof(buf), json_get_num(jsn, val), /* default */ 0);
             jprint_write(ctx, buf, len);
-
-            // check for floating point markers
-            jbool_t isfloat = JFALSE;
-            for ( size_t i = 0; i < len && !isfloat; i++ )
-            {
-                switch (buf[i])
-                {
-                    case 'e':
-                    case 'E':
-                    case '.':
-                        isfloat = JTRUE;
-                        i = len;
-                        break;
-
-                    default:
-                        break;
-                }
-            }
-
-            // make sure this ends up as a floating point value.
-            if (len > 0 && !isfloat)
-            {
-                jprint_const(ctx, ".0");
-            }
             break;
         }
 
@@ -1197,14 +1236,27 @@ void _jval_print( jprint_t* ctx, const struct json_t* jsn, jval_t val, size_t de
 #pragma mark - json_t
 
 //------------------------------------------------------------------------------
+json_t* json_new()
+{
+    json_t* js = (json_t*)calloc(1, sizeof(json_t));
+    json_init(js);
+    return js;
+}
+
+//------------------------------------------------------------------------------
 JINLINE void json_objs_reserve( json_t* jsn, size_t res )
 {
     assert(jsn);
     if (jsn->objs.len+res <= jsn->objs.cap)
         return;
 
-    jsn->objs.cap = grow(jsn->objs.len+res, jsn->objs.cap);
-    jsn->objs.ptr = (_jobj_t*)jrealloc(jsn->objs.ptr, jsn->objs.cap * sizeof(_jobj_t) );
+    size_t cap = grow(jsn->objs.len+res, jsn->objs.cap);
+    _jobj_t* ptr = (_jobj_t*)jrealloc(jsn->objs.ptr, sizeof(_jobj_t) * cap );
+    if (ptr)
+    {
+        jsn->objs.cap = cap;
+        jsn->objs.ptr = ptr;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1241,8 +1293,13 @@ JINLINE void json_arrays_reserve( json_t* jsn, size_t res )
     if (jsn->arrays.len+res <= jsn->arrays.cap)
         return;
 
-    jsn->arrays.cap = grow(jsn->arrays.len+res, jsn->arrays.cap);
-    jsn->arrays.ptr = (_jarray_t*)jrealloc(jsn->arrays.ptr, jsn->arrays.cap * sizeof(_jarray_t) );
+    size_t cap = grow(jsn->arrays.len+res, jsn->arrays.cap);
+    _jarray_t* ptr = (_jarray_t*)jrealloc(jsn->arrays.ptr, cap * sizeof(_jarray_t) );
+    if (ptr)
+    {
+        jsn->arrays.cap = cap;
+        jsn->arrays.ptr = ptr;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1279,8 +1336,13 @@ JINLINE void json_ints_reserve( json_t* jsn, size_t len )
     if (jsn->ints.len+len <= jsn->ints.cap)
         return;
 
-    jsn->ints.cap = grow(jsn->ints.len+len, jsn->ints.cap);
-    jsn->ints.ptr = (jint_t*)jrealloc(jsn->ints.ptr, jsn->ints.cap * sizeof(jint_t));
+    size_t cap = grow(jsn->ints.len+len, jsn->ints.cap);
+    jint_t* ptr = (jint_t*)jrealloc(jsn->ints.ptr, cap * sizeof(jint_t));
+    if (ptr)
+    {
+        jsn->ints.cap = cap;
+        jsn->ints.ptr = ptr;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1290,8 +1352,13 @@ JINLINE void json_nums_reserve( json_t* jsn, size_t len )
     if (jsn->nums.len+len <= jsn->nums.cap)
         return;
 
-    jsn->nums.cap = grow(jsn->nums.len+len, jsn->nums.cap);
-    jsn->nums.ptr = (jnum_t*)jrealloc(jsn->nums.ptr, jsn->nums.cap * sizeof(jnum_t));
+    size_t cap = grow(jsn->nums.len+len, jsn->nums.cap);
+    jnum_t* ptr = (jnum_t*)jrealloc(jsn->nums.ptr, cap * sizeof(jnum_t));
+    if (ptr)
+    {
+        jsn->nums.cap = cap;
+        jsn->nums.ptr = ptr;
+    }
 }
 
 
@@ -1572,8 +1639,13 @@ JINLINE void jobj_truncate( jobj_t o )
         return;
     }
 
-    obj->kvs.ptr = (jkv_t*)jrealloc(obj->kvs.ptr, obj->len * sizeof(jkv_t));
-    obj->cap = obj->len;
+    size_t cap = obj->len;
+    jkv_t* ptr = (jkv_t*)jrealloc(obj->kvs.ptr, cap * sizeof(jkv_t));
+    if (ptr)
+    {
+        obj->kvs.ptr = ptr;
+        obj->cap = (jsize_t)cap;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1584,18 +1656,27 @@ JINLINE void _jobj_reserve( _jobj_t* obj, size_t cap )
         return;
 
     size_t prev_cap = obj->cap;
-    obj->cap = (jsize_t)grow(obj->len+cap, obj->cap);
+    jsize_t new_cap = (jsize_t)grow(obj->len+cap, obj->cap);
 
     if (prev_cap <= BUF_SIZE)
     {
-        jkv_t* kvs = (jkv_t*)jmalloc( obj->cap * sizeof(jkv_t) );
-        memcpy(kvs, obj->kvs.buf, sizeof(jkv_t) * obj->len);
-        obj->kvs.ptr = kvs;
+        jkv_t* kvs = (jkv_t*)jmalloc( new_cap * sizeof(jkv_t) );
+        if (kvs)
+        {
+            memcpy(kvs, obj->kvs.buf, sizeof(jkv_t) * obj->len);
+            obj->kvs.ptr = kvs;
+            obj->cap = new_cap;
+        }
     }
     else
     {
         assert(obj->kvs.ptr);
-        obj->kvs.ptr = (jkv_t*)jrealloc(obj->kvs.ptr, sizeof(jkv_t)*obj->cap);
+        jkv_t* ptr = (jkv_t*)jrealloc(obj->kvs.ptr, sizeof(jkv_t)*new_cap);
+        if (ptr)
+        {
+            obj->kvs.ptr = ptr;
+            obj->cap = new_cap;
+        }
     }
 }
 
@@ -1878,8 +1959,12 @@ JINLINE void jarray_truncate( jarray_t a )
         return;
     }
 
-    array->vals.ptr = (jval_t*)jrealloc(array->vals.ptr, array->len * sizeof(jval_t));
-    array->cap = array->len;
+    jval_t* ptr = (jval_t*)jrealloc(array->vals.ptr, array->len * sizeof(jval_t));
+    if (ptr)
+    {
+        array->vals.ptr = ptr;
+        array->cap = array->len;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1891,18 +1976,26 @@ JINLINE void _jarray_reserve( _jarray_t* a, size_t cap )
         return;
 
     size_t prev_cap = a->cap;
-
-    a->cap = (jsize_t)grow(a->len+cap, a->cap);
+    jsize_t new_cap = (jsize_t)grow(a->len+cap, a->cap);
     if (prev_cap <= BUF_SIZE)
     {
-        jval_t* vals = (jval_t*)jmalloc( a->cap * sizeof(jval_t) );
-        memcpy(vals, a->vals.buf, a->len * sizeof(jval_t));
-        a->vals.ptr = vals;
+        jval_t* vals = (jval_t*)jmalloc( new_cap * sizeof(jval_t) );
+        if (vals)
+        {
+            memcpy(vals, a->vals.buf, a->len * sizeof(jval_t));
+            a->vals.ptr = vals;
+            a->cap = new_cap;
+        }
     }
     else
     {
         assert(a->vals.ptr);
-        a->vals.ptr = (jval_t*)jrealloc( a->vals.ptr, a->cap * sizeof(jval_t) );
+        jval_t* ptr = (jval_t*)jrealloc( a->vals.ptr, new_cap * sizeof(jval_t) );
+        if (ptr)
+        {
+            a->vals.ptr = ptr;
+            a->cap = new_cap;
+        }
     }
 }
 
@@ -2090,8 +2183,13 @@ JINLINE void jbuf_reserve( jbuf_t* buf, size_t cap )
     if (buf->len+cap <= buf->cap)
         return;
 
-    buf->cap = grow(buf->len+cap, buf->cap);
-    buf->ptr = (char*)jrealloc(buf->ptr, buf->cap * sizeof(char));
+    size_t new_cap = grow(buf->len+cap, buf->cap);
+    char* ptr = (char*)jrealloc(buf->ptr, new_cap * sizeof(char));
+    if (ptr)
+    {
+        buf->cap = new_cap;
+        buf->ptr = ptr;
+    }
     assert (buf->ptr);
 }
 
@@ -2283,7 +2381,7 @@ size_t json_print(const json_t* jsn, int flags, print_func p, void* udata)
 }
 
 //------------------------------------------------------------------------------
-char* json_to_str(const json_t* jsn, int flags)
+char* json_to_strl(const json_t* jsn, int flags, size_t* plen)
 {
     assert(jsn);
 
@@ -2295,6 +2393,9 @@ char* json_to_str(const json_t* jsn, int flags)
         jbuf_destroy(&buf);
         return NULL;
     }
+    size_t len = buf.len;
+    jbuf_end_str(&buf);
+    if (plen) *plen = len;
     return buf.ptr;
 }
 
@@ -2433,6 +2534,7 @@ JINLINE void jcontext_init(jcontext_t* ctx)
     ctx->end = NULL;
     ctx->file = NULL;
     ctx->err = NULL;
+    ctx->is_stream = JFALSE;
     *ctx->buf = '\0';
     jbuf_init(&ctx->strbuf);
 }
@@ -2442,6 +2544,7 @@ JINLINE void jcontext_init_buf(jcontext_t* ctx, const void* buf, size_t len)
 {
     assert(buf);
     jcontext_init(ctx);
+    ctx->is_stream = JFALSE;
     ctx->beg = (const char*)buf;
     ctx->end = ctx->beg + len;
 }
@@ -2451,6 +2554,7 @@ JINLINE void jcontext_init_file(jcontext_t* ctx, FILE* file)
 {
     assert(file);
     jcontext_init(ctx);
+    ctx->is_stream = JTRUE;
     ctx->file = file;
 }
 
@@ -2459,6 +2563,7 @@ JINLINE void jcontext_init_user(jcontext_t* ctx, void* ptr, json_read func)
 {
     assert(func);
     jcontext_init(ctx);
+    ctx->is_stream = JTRUE;
     ctx->ufunc = func;
     ctx->uptr = ptr;
 }
@@ -2481,7 +2586,11 @@ JINLINE void jcontext_read_file( jcontext_t* ctx )
     size_t len = fread(ctx->buf, 1, IO_BUF_SIZE, ctx->file);
     if (len == 0 && feof(ctx->file) != 0)
     {
-        json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", strerror(errno));
+        char buf[256];
+        int rt = strerror_r(errno, buf, sizeof(buf));
+        if (rt != 0) buf[0] = '\0'; // zero out our buffer
+        const char* str = buf;
+        json_assert(ferror(ctx->file) == 0, "error reading file contents: '%s'", str);
     }
     ctx->beg = ctx->buf;
     ctx->end = ctx->beg + len;
@@ -2550,8 +2659,8 @@ JINLINE uint32_t jcontext_read_utf8( jcontext_t* ctx )
 
         case 3: // 3 bytes
         {
-            int ch2 = jcontext_next(ctx);
-            int ch3 = jcontext_next(ctx);
+            unsigned int ch2 = jcontext_next(ctx);
+            unsigned int ch3 = jcontext_next(ctx);
             uint32_t cp = (ch1 << 12) + (ch2 << 6) + ch3 - 0xE2080;
 
             if ((ch2 & 0xC0) != 0x80) return 0;
@@ -2563,9 +2672,9 @@ JINLINE uint32_t jcontext_read_utf8( jcontext_t* ctx )
 
         case 4: // 4 bytes
         {
-            int ch2 = jcontext_next(ctx);
-            int ch3 = jcontext_next(ctx);
-            int ch4 = jcontext_next(ctx);
+            unsigned int ch2 = jcontext_next(ctx);
+            unsigned int ch3 = jcontext_next(ctx);
+            unsigned int ch4 = jcontext_next(ctx);
             uint32_t cp = (ch1 << 18) + (ch2 << 12) + (ch3 << 6) + ch4 - 0x3C82080;
 
             if ((ch2 & 0xC0) != 0x80) return 0;
@@ -3270,8 +3379,7 @@ int json_parse( json_t* jsn, jcontext_t* ctx )
         }
 
         ctx->buf[0] = '\0';
-
-        if (jcontext_peek(ctx) != EOF)
+        if ( !ctx->is_stream && jcontext_peek(ctx) != EOF)
         {
             parse_whitespace(ctx);
             int ch = jcontext_peek(ctx);
@@ -3524,7 +3632,7 @@ void _jarray_deep_copy( jarray_t dst, const jarray_t src )
 
             case JTYPE_STR:
             {
-                size_t slen;
+                size_t slen = 0;
                 jarray_add_strl(dst, jarray_get_strl(src, i, &slen), slen);
                 break;
             }
@@ -3722,6 +3830,9 @@ void json_copy( json_t* dst, const json_t* src )
 }
 
 //------------------------------------------------------------------------------
+#ifdef __GNUC__
+__attribute__ ((unused))
+#endif
 JINLINE void compile_macros()
 {
     json_t* jsn = json_new();
@@ -3770,3 +3881,8 @@ JINLINE void compile_macros()
 
     json_free(jsn);
 }
+
+
+#ifdef __cplusplus
+} // end extern "C"
+#endif

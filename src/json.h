@@ -149,8 +149,9 @@
     @code
     json_t jsn;
     // load json...
+    size_t len = 0;
     int flags = JPRINT_PRETTY|JPRINT_ESC_UNI;
-    char* str = json_to_str(&jsn, flags);
+    char* str = json_to_strl(&jsn, flags, &len);
     if (!str)
     {
         // error...
@@ -167,6 +168,7 @@
 #define __json_h__
 
 #include <stdio.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -396,6 +398,16 @@ void jval_print(const struct json_t* jsn, jval_t val, int flags, print_func p, v
     @return whether or not the value is an array type.
 */
 #define jval_is_array(VAL) (jval_type(VAL) == JTYPE_ARRAY)
+
+/*!
+    @function json_to_str
+     converts a json object into a null terminated c string
+
+    @param JSN the json object.
+    @param formatting flags
+    @return a null terminated c string.
+*/
+#define json_to_str(JSN,FLAG) json_to_strl(JSN, FLAG, NULL)
 
 //------------------------------------------------------------------------------
 /*!
@@ -639,6 +651,17 @@ void jobj_print(jobj_t obj, int flags, print_func p, void* udata);
     @return a number value, or 0 if not found.
 */
 #define jobj_find_num(OBJ, KEY) json_get_num(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
+
+/*!
+    @function jobj_find_int
+    Searches the json doc for an integer with the given key. If the key is not
+    found or the value is not an integer, 0 is returned.
+
+    @param OBJ the object to search.
+    @param KEY the key to search for.
+    @return an integer value, or 0 if not found.
+*/
+#define jobj_find_int(OBJ, KEY) json_get_int(jobj_get_json(OBJ), jobj_find(OBJ, KEY))
 
 /*!
     @function jobj_find_bool
@@ -1050,7 +1073,7 @@ typedef struct json_t json_t;
     
     @return a newly allocated and initialized json doc.
 */
-#define json_new() json_init((json_t*)calloc(1, sizeof(json_t)))
+json_t* json_new(void);
 
 /*!
     Initializes a new json doc. The doc can be safely used after initialization. 
@@ -1121,7 +1144,7 @@ int json_load_file(json_t* jsn, FILE* file, jerr_t* err);
 
     @param buf output buffer for writing.
     @param buflen the buffer size.
-    @param opaque user pointer.
+    @param uptr user pointer.
     
     @return the number of items read, or 0 if nothing was read.
 */
@@ -1256,8 +1279,9 @@ size_t json_print(const json_t* jsn, int flags, print_func p, void* udata);
     json_t jsn;
     // load json...
 
+    size_t len = 0;
     int flags = JPRINT_PRETTY|JPRINT_ESC_UNI;
-    char* str = json_to_str(&jsn, flags);
+    char* str = json_to_strl(&jsn, flags, &len);
     if (!str)
     {
         // error...
@@ -1271,9 +1295,10 @@ size_t json_print(const json_t* jsn, int flags, print_func p, void* udata);
     
     @param jsn the json doc to serialize. Must not be null.
     @param flags optional flags for controlling output format.
+    @param len if len is not null, returns the strlen of the returned c string.
     @return the json string. Null for an error. Must be free'd by caller.
 */
-char* json_to_str(const json_t* jsn, int flags);
+char* json_to_strl(const json_t* jsn, int flags, size_t* len);
 
 /*!
     Destroys the given json_t and calls free() on the pointer.
@@ -1367,7 +1392,7 @@ jobj_t json_root_obj( json_t* jsn );
 jarray_t json_root_array( json_t* jsn );
 
 /*!
-    Get's a string value from a json doc. If the value is not a string a NULL 
+    Gets a string value from a json doc. If the value is not a string a NULL
     pointer is returned. If the value does not belong to the given json doc, the
     result is undefined. 
     

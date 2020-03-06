@@ -35,6 +35,8 @@
 #include <vector>
 #include <map>
 #include <list>
+#include <cassert>
+#include <optional>
 
 namespace ims
 {
@@ -52,7 +54,7 @@ namespace ims
         friend class const_val;
     public:
 
-        typedef std::pair<std::string, class const_val> key_val;
+        using key_val = std::pair<std::string, class const_val>;
 
 //        obj( const obj& o ) = delete;
 //        obj& operator= ( const obj& o ) = delete;
@@ -370,7 +372,7 @@ namespace ims
                 }
             }
             
-            @param keypath a '/' delimited path to the json value.
+            @param key a '/' delimited path to the json value.
             @return an iterator pointing to the value, or an iterator equal to 
                     the end iterator if not found.
         */
@@ -769,7 +771,7 @@ namespace ims
             return from_buf( static_cast<char*>(buf.data()), buf.size() );
         }
 
-        static json from_buf( const char* buf, size_t buflen )
+        static json from_buf( const void* buf, size_t buflen )
         {
             json jsn;
             jerr_t err;
@@ -839,7 +841,7 @@ namespace ims
         }
 
         bool operator!() const { return empty(); }
-        operator bool () const { return !empty(); }
+        explicit operator bool () const { return !empty(); }
 
         int compare( const json& j ) const { return json_compare(&m_jsn, &j.m_jsn); }
         bool operator== (const json& j) const { return compare(j) == 0; }
@@ -895,6 +897,11 @@ namespace ims
         */
         obj::iterator find( const std::string& key ) const;
 
+        std::optional<std::string> find_str( const std::string& key ) const;
+        std::optional<jint_t> find_int( const std::string& key ) const;
+        std::optional<jnum_t> find_num( const std::string& key ) const;
+        std::optional<bool> find_bool( const std::string& key ) const;
+
         /**
             Tests whether or not this json document is empty or null.
             @return true if this json document is empty or null.
@@ -936,6 +943,7 @@ namespace ims
             @return the root object.
         */
         obj root_obj()  { return json_root_obj(&m_jsn); }
+        const obj root_obj() const { return json_root_obj(const_cast<json_t*>(&m_jsn)); }
 
         /**
             Gets the root object for this json document.
@@ -961,7 +969,7 @@ namespace ims
                 ((std::string*)ctx)->append((const char*)ptr, n);
                 return n;
             }, &str);
-            return std::move(str);
+            return str;
         }
 
         /**
@@ -992,8 +1000,8 @@ namespace ims
         friend class obj::setter;
         friend class array;
     public:
-        typedef std::vector<val> array;
-        typedef std::map<std::string, val> obj;
+        using array = std::vector<val>;
+        using obj = std::map<std::string, val>;
 
         val ()
             : m_type(JTYPE_NIL)
@@ -1295,14 +1303,49 @@ namespace ims
         bool is_array() const { return jval_is_array(m_val); }
         bool operator! ( ) const { return is_nil(); }
 
-        operator int() const { return (int)json_get_int(m_jsn, m_val); }
-        operator jint_t() const { return json_get_int(m_jsn, m_val); }
-        operator size_t() const { return json_get_int(m_jsn, m_val); }
-        operator jnum_t() const { return json_get_num(m_jsn, m_val); }
-        operator bool() const { return json_get_bool(m_jsn, m_val); }
-        operator obj() const { return json_get_obj(const_cast<json_t*>(m_jsn), m_val); }
-        operator array() const { return json_get_array(const_cast<json_t*>(m_jsn), m_val); }
-        operator std::string () const
+        std::optional<jint_t> to_int() const
+        {
+            return is_int() ? json_get_int(m_jsn, m_val) : std::optional<jint_t>();
+        }
+
+        std::optional<jnum_t> to_num() const
+        {
+            return is_num() ? json_get_num(m_jsn, m_val) : std::optional<jnum_t>();
+        }
+
+        std::optional<bool> to_bool() const
+        {
+            return is_bool() ? json_get_int(m_jsn, m_val) : std::optional<bool>();
+        }
+
+        std::optional<std::string> to_str() const
+        {
+            if (is_str())
+            {
+                size_t slen;
+                const char* cstr = json_get_strl(m_jsn, m_val, &slen);
+                return (cstr) ? std::string(cstr, slen) : std::string();
+            }
+            return {};
+        }
+
+        std::optional<array> to_array() const
+        {
+            if (is_array())
+            {
+                return static_cast<array>(json_get_array(const_cast<json_t*>(m_jsn), m_val));
+            }
+            return {};
+        }
+
+        explicit operator int() const { return (int)json_get_int(m_jsn, m_val); }
+        explicit operator jint_t() const { return json_get_int(m_jsn, m_val); }
+        explicit operator size_t() const { return static_cast<size_t>(json_get_int(m_jsn, m_val)); }
+        explicit operator jnum_t() const { return json_get_num(m_jsn, m_val); }
+        explicit operator bool() const { return json_get_bool(m_jsn, m_val); }
+        explicit operator obj() const { return json_get_obj(const_cast<json_t*>(m_jsn), m_val); }
+        explicit operator array() const { return json_get_array(const_cast<json_t*>(m_jsn), m_val); }
+        explicit operator std::string () const
         {
             size_t slen;
             const char* cstr = json_get_strl(m_jsn, m_val, &slen);
@@ -1461,8 +1504,59 @@ namespace ims
         const auto& val = (*it).second;
         if (val.is_nil()) return def;
         
-        return val;
+        return static_cast<T>(val);
     }
+
+    inline obj::iterator json::find( const std::string& key ) const
+    {
+        auto root = this->root_obj();
+        return root.find(key);
+    }
+
+    inline std::optional<std::string> json::find_str( const std::string& key ) const
+    {
+        auto it = find(key);
+        auto root = this->root_obj();
+        if (it != root.end())
+        {
+            return (*it).second.to_str();
+        }
+        return {};
+    }
+
+    inline std::optional<jint_t> json::find_int( const std::string& key ) const
+    {
+        auto it = find(key);
+        auto root = this->root_obj();
+        if (it != root.end())
+        {
+            return (*it).second.to_int();
+        }
+        return {};
+    }
+
+    inline std::optional<jnum_t> json::find_num( const std::string& key ) const
+    {
+        auto it = find(key);
+        auto root = this->root_obj();
+        if (it != root.end())
+        {
+            return (*it).second.to_num();
+        }
+        return {};
+    }
+
+    inline std::optional<bool> json::find_bool( const std::string& key ) const
+    {
+        auto it = find(key);
+        auto root = this->root_obj();
+        if (it != root.end())
+        {
+            return (*it).second.to_bool();
+        }
+        return {};
+    }
+
 
     //--------------------------------------------------------------------------
     inline obj::iterator obj::findr( const std::string& key ) const
@@ -1477,7 +1571,7 @@ namespace ims
             auto rt = (*it).second;
             if (rt.is_obj())
             {
-                const ims::obj& obj = rt;
+                auto obj = static_cast<const ims::obj&>(rt);
                 auto it = obj.findr(key.substr(idx+1));
 //                return it;
                 return (it == obj.end()) ? end() : it;
@@ -1497,7 +1591,7 @@ namespace ims
         const auto& val = (*it).second;
         if (val.is_nil()) return def;
         
-        return val;
+        return static_cast<T>(val);
     }
 
     //--------------------------------------------------------------------------
